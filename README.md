@@ -32,9 +32,9 @@ Because the long-term product needs scheduling, media metadata, local streams an
 - **Storage:** browser `localStorage`
 - **Goal:** validate the guide UX, channel model and scheduling workflow
 
-### Phase 2: minimal backend
+### Phase 2: minimal C++ backend
 
-Recommended direction: **Java backend with minimal dependencies**.
+Recommended direction: **C++ backend with minimal dependencies**.
 
 - serve the static frontend directly from the backend
 - expose a small JSON API for channels, media, schedules and playback state
@@ -52,7 +52,7 @@ Suggested backend responsibilities:
 
 ### Phase 3: integrations
 
-Add adapters behind clear interfaces:
+Add source plugins behind clear interfaces:
 
 - local files
 - DLNA discovery
@@ -84,9 +84,29 @@ python3 -m http.server 8000
 
 Then open <http://localhost:8000>.
 
+## Running the C++ backend
+
+The backend scaffold builds with CMake and serves the current static frontend from
+the repository root. It also exposes early JSON endpoints for health, source
+plugins and discovered videos.
+
+```bash
+cmake -S . -B build
+cmake --build build
+./build/tvtime_server . ./media
+```
+
+Then open <http://127.0.0.1:8080>. Set `TVTIME_PORT` to choose another port.
+
+Current API endpoints:
+
+- `GET /api/health`
+- `GET /api/sources`
+- `GET /api/videos`
+
 ## Next backend milestones
 
-1. move browser state into a Java service
+1. move browser state into the C++ service
 2. add persistent media and schedule storage
 3. separate scheduling rules from UI logic
 4. add playback endpoints and source adapters
