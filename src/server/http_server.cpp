@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -44,8 +45,10 @@ std::string jsonEscape(const std::string& value) {
         break;
       default:
         if (static_cast<unsigned char>(ch) < 0x20) {
-          escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0')
-                  << static_cast<int>(static_cast<unsigned char>(ch)) << std::dec;
+          std::ostringstream hex;
+          hex << std::hex << std::setw(4) << std::setfill('0')
+              << static_cast<int>(static_cast<unsigned char>(ch));
+          escaped << "\\u" << hex.str();
         } else {
           escaped << ch;
         }
@@ -119,11 +122,13 @@ std::string response(
     int status,
     const std::string& reason,
     const std::string& type,
-    const std::string& body) {
+    const std::string& body,
+    const std::string& extraHeaders = "") {
   std::ostringstream output;
   output << "HTTP/1.1 " << status << " " << reason << "\r\n"
          << "Content-Type: " << type << "\r\n"
          << "Content-Length: " << body.size() << "\r\n"
+         << extraHeaders
          << "Connection: close\r\n\r\n"
          << body;
 
@@ -148,10 +153,18 @@ bool isUnsafePath(const std::filesystem::path& path) {
              [](const auto& part) { return part == ".."; });
 }
 
-std::string readFile(const std::filesystem::path& path) {
+std::optional<std::string> readFile(const std::filesystem::path& path) {
   std::ifstream file(path, std::ios::binary);
+  if (!file.is_open()) {
+    return std::nullopt;
+  }
+
   std::ostringstream body;
   body << file.rdbuf();
+  if (file.bad()) {
+    return std::nullopt;
+  }
+
   return body.str();
 }
 
@@ -161,7 +174,12 @@ std::string route(
     const std::string& method,
     const std::string& target) {
   if (method != "GET") {
-    return response(405, "Method Not Allowed", "text/plain; charset=utf-8", "Method not allowed");
+    return response(
+        405,
+        "Method Not Allowed",
+        "text/plain; charset=utf-8",
+        "Method not allowed",
+        "Allow: GET\r\n");
   }
 
   if (target == "/api/health") {
@@ -193,7 +211,12 @@ std::string route(
     return response(404, "Not Found", "text/plain; charset=utf-8", "Not found");
   }
 
-  return response(200, "OK", contentType(filePath), readFile(filePath));
+  const auto body = readFile(filePath);
+  if (!body.has_value()) {
+    return response(500, "Internal Server Error", "text/plain; charset=utf-8", "Unable to read file");
+  }
+
+  return response(200, "OK", contentType(filePath), *body);
 }
 
 #ifndef _WIN32
@@ -267,7 +290,9 @@ void HttpServer::listen(const std::string& host, int port) {
     std::string requestText;
     std::array<char, 4096> buffer{};
     while (requestText.find("\r\n\r\n") == std::string::npos && requestText.size() < 16384) {
-      const auto bytesRead = recv(client.descriptor(), buffer.data(), buffer.size(), 0);
+      const auto bytesRemaining = 16384 - requestText.size();
+      const auto bytesToRead = std::min(buffer.size(), bytesRemaining);
+      const auto bytesRead = recv(client.descriptor(), buffer.data(), bytesToRead, 0);
       if (bytesRead <= 0) {
         break;
       }
