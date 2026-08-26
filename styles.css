@@ -1,0 +1,176 @@
+:root {
+  color-scheme: dark;
+  font-family: Arial, sans-serif;
+  --bg: #111827;
+  --panel: #1f2937;
+  --panel-border: #374151;
+  --text: #f9fafb;
+  --muted: #9ca3af;
+  --accent: #38bdf8;
+  --accent-strong: #0ea5e9;
+  --success: #16a34a;
+  --warning: #f59e0b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 0.5rem;
+  padding: 0.8rem 1rem;
+  background: var(--accent);
+  color: #082f49;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent-strong);
+}
+
+input,
+select {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 0.5rem;
+  background: #0f172a;
+  color: var(--text);
+}
+
+label {
+  display: block;
+}
+
+.layout {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+
+.hero,
+.grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.hero {
+  grid-template-columns: 2fr 1fr;
+  align-items: start;
+}
+
+.grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.eyebrow,
+.muted {
+  color: var(--muted);
+}
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.lede {
+  max-width: 60ch;
+}
+
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.list {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list li,
+.status,
+.message {
+  padding: 0.8rem;
+  border-radius: 0.75rem;
+  background: #0f172a;
+}
+
+.list li + li {
+  margin-top: 0.5rem;
+}
+
+.status strong,
+.guide-table strong {
+  color: var(--accent);
+}
+
+.guide-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.guide-table {
+  width: 100%;
+  margin-top: 1rem;
+  border-collapse: collapse;
+}
+
+.guide-table th,
+.guide-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--panel-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.message {
+  display: none;
+  margin-top: 1rem;
+}
+
+.message.visible {
+  display: block;
+}
+
+.message.success {
+  border: 1px solid color-mix(in srgb, var(--success) 55%, transparent);
+}
+
+.message.warning {
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+}
+
+@media (max-width: 900px) {
+  .hero,
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
