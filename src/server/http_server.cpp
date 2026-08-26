@@ -12,12 +12,15 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
+#include <thread>
 
 namespace tvtime::server {
 
@@ -153,6 +156,28 @@ bool isUnsafePath(const std::filesystem::path& path) {
              [](const auto& part) { return part == ".."; });
 }
 
+bool isInsideRoot(
+    const std::filesystem::path& root,
+    const std::filesystem::path& requestedPath) {
+  std::error_code error;
+  const auto canonicalRoot = std::filesystem::weakly_canonical(root, error);
+  if (error) {
+    return false;
+  }
+
+  const auto canonicalRequested = std::filesystem::weakly_canonical(requestedPath, error);
+  if (error) {
+    return false;
+  }
+
+  return std::mismatch(
+             canonicalRoot.begin(),
+             canonicalRoot.end(),
+             canonicalRequested.begin(),
+             canonicalRequested.end())
+             .first == canonicalRoot.end();
+}
+
 std::optional<std::string> readFile(const std::filesystem::path& path) {
   std::ifstream file(path, std::ios::binary);
   if (!file.is_open()) {
@@ -207,6 +232,10 @@ std::string route(
   }
 
   const auto filePath = documentRoot / relative;
+  if (!isInsideRoot(documentRoot, filePath)) {
+    return response(400, "Bad Request", "text/plain; charset=utf-8", "Bad request");
+  }
+
   if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath)) {
     return response(404, "Not Found", "text/plain; charset=utf-8", "Not found");
   }
@@ -239,6 +268,55 @@ class Socket {
  private:
   int descriptor_;
 };
+
+void handleClient(
+    int clientDescriptor,
+    const std::filesystem::path& documentRoot,
+    const MediaLibrary& library) {
+  const Socket client(clientDescriptor);
+
+  std::string requestText;
+  std::array<char, 4096> buffer{};
+  while (requestText.find("\r\n\r\n") == std::string::npos && requestText.size() < 16384) {
+    const auto bytesRemaining = 16384 - requestText.size();
+    const auto bytesToRead = std::min(buffer.size(), bytesRemaining);
+    const auto bytesRead = recv(client.descriptor(), buffer.data(), bytesToRead, 0);
+    if (bytesRead <= 0) {
+      break;
+    }
+
+    requestText.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+  }
+
+  if (requestText.find("\r\n\r\n") == std::string::npos) {
+    const auto output = response(
+        400,
+        "Bad Request",
+        "text/plain; charset=utf-8",
+        "Incomplete or oversized request headers");
+    send(client.descriptor(), output.data(), output.size(), 0);
+    return;
+  }
+
+  std::istringstream request(requestText);
+  std::string method;
+  std::string target;
+  request >> method >> target;
+
+  const auto output = route(documentRoot, library, method, target);
+  std::size_t sent = 0;
+  while (sent < output.size()) {
+    const auto sentNow = send(
+        client.descriptor(),
+        output.data() + sent,
+        output.size() - sent,
+        0);
+    if (sentNow <= 0) {
+      break;
+    }
+    sent += static_cast<std::size_t>(sentNow);
+  }
+}
 #endif
 
 }  // namespace
@@ -282,52 +360,12 @@ void HttpServer::listen(const std::string& host, int port) {
   std::cout << "TVTime server listening on http://" << host << ":" << port << "\n";
 
   while (true) {
-    const Socket client(accept(serverSocket.descriptor(), nullptr, nullptr));
-    if (client.descriptor() < 0) {
+    const auto clientDescriptor = accept(serverSocket.descriptor(), nullptr, nullptr);
+    if (clientDescriptor < 0) {
       continue;
     }
 
-    std::string requestText;
-    std::array<char, 4096> buffer{};
-    while (requestText.find("\r\n\r\n") == std::string::npos && requestText.size() < 16384) {
-      const auto bytesRemaining = 16384 - requestText.size();
-      const auto bytesToRead = std::min(buffer.size(), bytesRemaining);
-      const auto bytesRead = recv(client.descriptor(), buffer.data(), bytesToRead, 0);
-      if (bytesRead <= 0) {
-        break;
-      }
-
-      requestText.append(buffer.data(), static_cast<std::size_t>(bytesRead));
-    }
-
-    if (requestText.find("\r\n\r\n") == std::string::npos) {
-      const auto output = response(
-          400,
-          "Bad Request",
-          "text/plain; charset=utf-8",
-          "Incomplete or oversized request headers");
-      send(client.descriptor(), output.data(), output.size(), 0);
-      continue;
-    }
-
-    std::istringstream request(requestText);
-    std::string method;
-    std::string target;
-    request >> method >> target;
-
-    const auto output = route(documentRoot_, library_, method, target);
-    std::size_t sent = 0;
-    while (sent < output.size()) {
-      const auto sentNow = send(
-          client.descriptor(),
-          output.data() + sent,
-          output.size() - sent,
-          0);
-      if (sentNow <= 0) {
-        break;
-      }
-      sent += static_cast<std::size_t>(sentNow);
-    }
+    std::thread(handleClient, clientDescriptor, documentRoot_, std::cref(library_)).detach();
   }
 #endif
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <system_error>
 
 namespace tvtime {
 
@@ -37,8 +38,24 @@ std::vector<Video> LocalFileSource::discover() {
     return videos;
   }
 
-  for (const auto& entry : std::filesystem::recursive_directory_iterator(root_)) {
-    if (!entry.is_regular_file() || !isSupportedVideoFile(entry.path())) {
+  std::error_code error;
+  std::filesystem::recursive_directory_iterator iterator(
+      root_,
+      std::filesystem::directory_options::skip_permission_denied,
+      error);
+  const std::filesystem::recursive_directory_iterator end;
+
+  while (!error && iterator != end) {
+    const auto& entry = *iterator;
+    if (!entry.is_regular_file(error) && error) {
+      error.clear();
+      iterator.increment(error);
+      continue;
+    }
+
+    if (!entry.is_regular_file(error) || !isSupportedVideoFile(entry.path())) {
+      error.clear();
+      iterator.increment(error);
       continue;
     }
 
@@ -50,6 +67,8 @@ std::vector<Video> LocalFileSource::discover() {
         name(),
         entry.path().string(),
     });
+
+    iterator.increment(error);
   }
 
   return videos;

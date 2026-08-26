@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 project(TVTime VERSION 0.1.0 LANGUAGES CXX)
 
+find_package(Threads REQUIRED)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -19,7 +21,7 @@ add_executable(tvtime_server
   src/server/main.cpp
 )
 
-target_link_libraries(tvtime_server PRIVATE tvtime_core)
+target_link_libraries(tvtime_server PRIVATE tvtime_core Threads::Threads)
 
 if(MSVC)
   target_compile_options(tvtime_core PRIVATE /W4)
