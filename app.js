@@ -123,7 +123,7 @@ manualScheduleForm.addEventListener("submit", (event) => {
     return;
   }
 
-  if (toMinutes(start) + media.duration > DAY_MINUTES) {
+  if (toMinutes(start) + media.duration >= DAY_MINUTES) {
     showMessage("This prototype only supports schedules that finish before midnight.", "warning");
     return;
   }
@@ -161,7 +161,7 @@ autoScheduleForm.addEventListener("submit", (event) => {
     return;
   }
 
-  if (endMinutes > DAY_MINUTES) {
+  if (endMinutes >= DAY_MINUTES) {
     showMessage("This prototype only supports schedules that finish before midnight.", "warning");
     return;
   }
@@ -257,7 +257,7 @@ function renderMedia() {
     const row = document.createElement("li");
     row.innerHTML = `<strong>${escapeHtml(item.title)}</strong> · ${escapeHtml(
       item.genre
-    )} · ${item.duration} min · ${escapeHtml(item.source)}`;
+    )} · ${Number(item.duration)} min · ${escapeHtml(item.source)}`;
     mediaList.appendChild(row);
   });
 }
@@ -373,7 +373,7 @@ function sortSchedule() {
 function findLiveSlot() {
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const selectedChannel = guideChannel.value;
+  const selectedChannel = guideChannel.value || state.channels[0] || "";
 
   return state.schedule.find((slot) => {
     if (selectedChannel && slot.channel !== selectedChannel) {
@@ -392,7 +392,7 @@ function toMinutes(value) {
 }
 
 function fromMinutes(value) {
-  const hours = Math.floor(value / 60) % 24;
+  const hours = Math.floor(value / 60);
   const minutes = value % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
