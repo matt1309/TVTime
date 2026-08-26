@@ -16,6 +16,7 @@ void MediaLibrary::addVideo(Video video) {
 }
 
 void MediaLibrary::importFromSources() {
+  std::lock_guard importLock(importMutex_);
   std::vector<std::shared_ptr<SourcePlugin>> sources;
   {
     std::shared_lock lock(mutex_);

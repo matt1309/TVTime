@@ -288,6 +288,28 @@ class Socket {
   int descriptor_;
 };
 
+void sendResponse(int descriptor, const std::string& output) {
+  std::size_t sent = 0;
+  while (sent < output.size()) {
+    const auto sentNow = send(descriptor, output.data() + sent, output.size() - sent, 0);
+    if (sentNow <= 0) {
+      break;
+    }
+    sent += static_cast<std::size_t>(sentNow);
+  }
+}
+
+bool reserveClientSlot(const std::shared_ptr<std::atomic_size_t>& activeClients) {
+  auto current = activeClients->load();
+  while (current < kMaxActiveClients) {
+    if (activeClients->compare_exchange_weak(current, current + 1)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 void handleClient(
     int clientDescriptor,
     const std::filesystem::path& documentRoot,
@@ -327,29 +349,7 @@ void handleClient(
   request >> method >> target;
 
   const auto output = route(documentRoot, *library, method, target);
-  std::size_t sent = 0;
-  while (sent < output.size()) {
-    const auto sentNow = send(
-        client.descriptor(),
-        output.data() + sent,
-        output.size() - sent,
-        0);
-    if (sentNow <= 0) {
-      break;
-    }
-    sent += static_cast<std::size_t>(sentNow);
-  }
-}
-
-void sendResponse(int descriptor, const std::string& output) {
-  std::size_t sent = 0;
-  while (sent < output.size()) {
-    const auto sentNow = send(descriptor, output.data() + sent, output.size() - sent, 0);
-    if (sentNow <= 0) {
-      break;
-    }
-    sent += static_cast<std::size_t>(sentNow);
-  }
+  sendResponse(client.descriptor(), output);
 }
 
 #endif
@@ -406,7 +406,7 @@ void HttpServer::listen(const std::string& host, int port) {
       throw std::runtime_error(message);
     }
 
-    if (activeClients->load() >= kMaxActiveClients) {
+    if (!reserveClientSlot(activeClients)) {
       const Socket client(clientDescriptor);
       sendResponse(
           client.descriptor(),
@@ -418,7 +418,6 @@ void HttpServer::listen(const std::string& host, int port) {
       continue;
     }
 
-    activeClients->fetch_add(1);
     std::thread(
         [clientDescriptor, documentRoot = documentRoot_, library = library_, activeClients]() {
           handleClient(clientDescriptor, documentRoot, library);

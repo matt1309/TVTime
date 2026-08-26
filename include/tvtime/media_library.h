@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -22,6 +23,7 @@ class MediaLibrary {
   [[nodiscard]] std::optional<Video> findVideo(const std::string& id) const;
 
  private:
+  std::mutex importMutex_;
   mutable std::shared_mutex mutex_;
   std::vector<Video> videos_;
   std::vector<std::shared_ptr<SourcePlugin>> sources_;
