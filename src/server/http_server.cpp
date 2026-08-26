@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <fstream>
@@ -25,6 +26,8 @@
 namespace tvtime::server {
 
 namespace {
+
+constexpr std::size_t kMaxActiveClients = 64;
 
 std::string jsonEscape(const std::string& value) {
   std::ostringstream escaped;
@@ -229,6 +232,10 @@ std::string route(
     decoded = "/index.html";
   }
 
+  if (decoded.empty() || decoded.front() != '/') {
+    return response(400, "Bad Request", "text/plain; charset=utf-8", "Bad request");
+  }
+
   std::filesystem::path relative = decoded.substr(1);
   relative = relative.lexically_normal();
 
@@ -334,6 +341,17 @@ void handleClient(
   }
 }
 
+void sendResponse(int descriptor, const std::string& output) {
+  std::size_t sent = 0;
+  while (sent < output.size()) {
+    const auto sentNow = send(descriptor, output.data() + sent, output.size() - sent, 0);
+    if (sentNow <= 0) {
+      break;
+    }
+    sent += static_cast<std::size_t>(sentNow);
+  }
+}
+
 #endif
 
 }  // namespace
@@ -376,6 +394,7 @@ void HttpServer::listen(const std::string& host, int port) {
 
   std::cout << "TVTime server listening on http://" << host << ":" << port << "\n";
 
+  auto activeClients = std::make_shared<std::atomic_size_t>(0);
   while (true) {
     const auto clientDescriptor = accept(serverSocket.descriptor(), nullptr, nullptr);
     if (clientDescriptor < 0) {
@@ -387,7 +406,25 @@ void HttpServer::listen(const std::string& host, int port) {
       throw std::runtime_error(message);
     }
 
-    std::thread(handleClient, clientDescriptor, documentRoot_, library_).detach();
+    if (activeClients->load() >= kMaxActiveClients) {
+      const Socket client(clientDescriptor);
+      sendResponse(
+          client.descriptor(),
+          response(
+              503,
+              "Service Unavailable",
+              "text/plain; charset=utf-8",
+              "Too many active connections"));
+      continue;
+    }
+
+    activeClients->fetch_add(1);
+    std::thread(
+        [clientDescriptor, documentRoot = documentRoot_, library = library_, activeClients]() {
+          handleClient(clientDescriptor, documentRoot, library);
+          activeClients->fetch_sub(1);
+        })
+        .detach();
   }
 #endif
 }

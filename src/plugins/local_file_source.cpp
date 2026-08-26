@@ -34,11 +34,11 @@ std::string LocalFileSource::name() const {
 std::vector<Video> LocalFileSource::discover() {
   std::vector<Video> videos;
 
-  if (!std::filesystem::exists(root_)) {
+  std::error_code error;
+  if (!std::filesystem::exists(root_, error) || error) {
     return videos;
   }
 
-  std::error_code error;
   std::filesystem::recursive_directory_iterator iterator(
       root_,
       std::filesystem::directory_options::skip_permission_denied,

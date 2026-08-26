@@ -4,10 +4,6 @@ project(TVTime VERSION 0.1.0 LANGUAGES CXX)
 
 find_package(Threads REQUIRED)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
 add_library(tvtime_core
   src/core/media_library.cpp
   src/core/schedule.cpp
