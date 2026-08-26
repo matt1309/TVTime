@@ -30,7 +30,7 @@ int parsePort(const char* value) {
 }
 
 std::string parseHost(const char* value) {
-  if (value == nullptr || std::string(value).empty()) {
+  if (value == nullptr || value[0] == '\0') {
     return "127.0.0.1";
   }
 
