@@ -6,7 +6,7 @@ function createId() {
     return window.crypto.randomUUID();
   }
 
-  return `media-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function createSeedState() {
@@ -123,7 +123,7 @@ manualScheduleForm.addEventListener("submit", (event) => {
     return;
   }
 
-  if (toMinutes(start) + media.duration >= DAY_MINUTES) {
+  if (toMinutes(start) + media.duration > DAY_MINUTES) {
     showMessage("This prototype only supports schedules that finish before midnight.", "warning");
     return;
   }
@@ -161,7 +161,7 @@ autoScheduleForm.addEventListener("submit", (event) => {
     return;
   }
 
-  if (endMinutes >= DAY_MINUTES) {
+  if (endMinutes > DAY_MINUTES) {
     showMessage("This prototype only supports schedules that finish before midnight.", "warning");
     return;
   }
@@ -307,15 +307,16 @@ function renderGuide(channel) {
 }
 
 function renderNowPlaying() {
+  const selectedChannel = guideChannel.value || state.channels[0] || "the selected channel";
   const liveSlot = findLiveSlot();
   if (!liveSlot) {
-    nowPlaying.textContent = "No scheduled programme is live right now.";
+    nowPlaying.textContent = `No scheduled programme is live on ${selectedChannel} right now.`;
     return;
   }
 
   const media = state.media.find((item) => item.id === liveSlot.mediaId);
   if (!media) {
-    nowPlaying.textContent = "A live slot exists, but its media item is missing.";
+    nowPlaying.textContent = `A live slot exists on ${selectedChannel}, but its media item is missing.`;
     return;
   }
 
