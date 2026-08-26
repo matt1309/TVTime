@@ -1,4 +1,5 @@
 const STORAGE_KEY = "tvtime-state-v1";
+const DAY_MINUTES = 24 * 60;
 
 function createId() {
   if (window.crypto?.randomUUID) {
@@ -119,6 +120,11 @@ manualScheduleForm.addEventListener("submit", (event) => {
 
   if (!channel || !media || !start) {
     showMessage("Choose a channel, programme and start time.", "warning");
+    return;
+  }
+
+  if (toMinutes(start) + media.duration > DAY_MINUTES) {
+    showMessage("This prototype only supports schedules that finish before midnight.", "warning");
     return;
   }
 

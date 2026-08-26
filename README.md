@@ -79,7 +79,6 @@ It matches the project goals:
 From the repository root:
 
 ```bash
-cd /home/runner/work/TVTime/TVTime
 python3 -m http.server 8000
 ```
 
