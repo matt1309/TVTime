@@ -161,6 +161,11 @@ autoScheduleForm.addEventListener("submit", (event) => {
     return;
   }
 
+  if (endMinutes > DAY_MINUTES) {
+    showMessage("This prototype only supports schedules that finish before midnight.", "warning");
+    return;
+  }
+
   const matchingMedia = state.media.filter((item) => item.genre === genre);
   if (matchingMedia.length === 0) {
     showMessage(`No media found for genre "${genre}".`, "warning");
@@ -368,8 +373,13 @@ function sortSchedule() {
 function findLiveSlot() {
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const selectedChannel = guideChannel.value;
 
   return state.schedule.find((slot) => {
+    if (selectedChannel && slot.channel !== selectedChannel) {
+      return false;
+    }
+
     const start = toMinutes(slot.start);
     const end = toMinutes(slot.end);
     return nowMinutes >= start && nowMinutes < end;
