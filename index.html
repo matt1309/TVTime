@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TVTime</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Old school TV scheduling</p>
+          <h1>TVTime</h1>
+          <p class="lede">
+            Build channels, add media and let the day follow a timetable instead
+            of endless choice.
+          </p>
+        </div>
+        <section class="card">
+          <h2>Now playing</h2>
+          <div id="now-playing" class="status">
+            No scheduled programme is live right now.
+          </div>
+        </section>
+      </header>
+
+      <section class="grid">
+        <section class="card">
+          <h2>Channels</h2>
+          <form id="channel-form" class="stack">
+            <label>
+              Channel name
+              <input id="channel-name" name="channel-name" required />
+            </label>
+            <button type="submit">Add channel</button>
+          </form>
+          <ul id="channel-list" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Media library</h2>
+          <form id="media-form" class="stack">
+            <label>
+              Title
+              <input id="media-title" name="media-title" required />
+            </label>
+            <label>
+              Genre
+              <input id="media-genre" name="media-genre" required />
+            </label>
+            <label>
+              Duration (minutes)
+              <input
+                id="media-duration"
+                name="media-duration"
+                type="number"
+                min="1"
+                required
+              />
+            </label>
+            <label>
+              Source
+              <input
+                id="media-source"
+                name="media-source"
+                placeholder="local, dlna, http, rtsp..."
+              />
+            </label>
+            <button type="submit">Add media</button>
+          </form>
+          <ul id="media-list" class="list"></ul>
+        </section>
+      </section>
+
+      <section class="grid">
+        <section class="card">
+          <h2>Build schedule from scratch</h2>
+          <form id="manual-schedule-form" class="stack">
+            <label>
+              Channel
+              <select id="manual-channel" name="manual-channel"></select>
+            </label>
+            <label>
+              Programme
+              <select id="manual-media" name="manual-media"></select>
+            </label>
+            <label>
+              Start time
+              <input id="manual-start" name="manual-start" type="time" required />
+            </label>
+            <button type="submit">Add slot</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Generate by genre</h2>
+          <form id="auto-schedule-form" class="stack">
+            <label>
+              Channel
+              <select id="auto-channel" name="auto-channel"></select>
+            </label>
+            <label>
+              Genre
+              <input id="auto-genre" name="auto-genre" required />
+            </label>
+            <label>
+              Start time
+              <input id="auto-start" name="auto-start" type="time" required />
+            </label>
+            <label>
+              End time
+              <input id="auto-end" name="auto-end" type="time" required />
+            </label>
+            <button type="submit">Generate block</button>
+          </form>
+        </section>
+      </section>
+
+      <section class="card">
+        <div class="guide-header">
+          <div>
+            <h2>TV guide</h2>
+            <p class="muted">Pick a channel and review its schedule for today.</p>
+          </div>
+          <label>
+            Channel
+            <select id="guide-channel"></select>
+          </label>
+        </div>
+        <div id="message" class="message" aria-live="polite"></div>
+        <table class="guide-table">
+          <thead>
+            <tr>
+              <th>Start</th>
+              <th>End</th>
+              <th>Title</th>
+              <th>Genre</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="guide-body"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
