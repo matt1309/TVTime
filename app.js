@@ -157,7 +157,7 @@ autoScheduleForm.addEventListener("submit", (event) => {
   const startMinutes = toMinutes(start);
   const endMinutes = toMinutes(end);
   if (endMinutes <= startMinutes) {
-    showMessage("End time must be after start time.", "warning");
+    showMessage("End time must be later than the start time in the same day.", "warning");
     return;
   }
 
@@ -226,6 +226,7 @@ function loadState() {
   try {
     return JSON.parse(saved);
   } catch {
+    window.console.warn("TVTime saved state was invalid and has been reset.");
     return createSeedState();
   }
 }
