@@ -61,6 +61,8 @@ const manualMedia = document.querySelector("#manual-media");
 const guideBody = document.querySelector("#guide-body");
 const nowPlaying = document.querySelector("#now-playing");
 const message = document.querySelector("#message");
+const libraryStatus = document.querySelector("#library-status");
+const syncLibrary = document.querySelector("#sync-library");
 
 channelForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -216,6 +218,62 @@ guideChannel.addEventListener("change", () => {
   renderGuide(guideChannel.value);
   renderNowPlaying();
 });
+
+syncLibrary.addEventListener("click", () => {
+  syncBackendMedia({ showSuccess: true });
+});
+
+async function syncBackendMedia({ showSuccess = false } = {}) {
+  try {
+    const response = await fetch("/api/videos", {
+      headers: {
+        Accept: "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`backend returned ${response.status}`);
+    }
+
+    const videos = await response.json();
+    if (!Array.isArray(videos)) {
+      throw new Error("backend response was not a video list");
+    }
+
+    const existingIds = new Set(state.media.map((item) => item.id));
+    const imported = videos
+      .filter((video) => video?.id && !existingIds.has(video.id))
+      .map((video) => ({
+        id: video.id,
+        title: video.title || "Untitled video",
+        genre: video.genre || "unknown",
+        duration: normaliseDuration(video.durationMinutes),
+        source: video.source || "backend"
+      }));
+
+    if (imported.length > 0) {
+      state.media.push(...imported);
+      persistState();
+      render();
+    }
+
+    libraryStatus.textContent = `Backend connected. ${state.media.length} media item${
+      state.media.length === 1 ? "" : "s"
+    } available.`;
+    if (showSuccess) {
+      showMessage(
+        `Imported ${imported.length} new backend media item${
+          imported.length === 1 ? "" : "s"
+        }.`,
+        "success"
+      );
+    }
+  } catch (error) {
+    libraryStatus.textContent =
+      "Backend media sync is unavailable. You can keep using the browser-only library.";
+    window.console.info("TVTime backend media sync skipped:", error);
+  }
+}
 
 function loadState() {
   const saved = window.localStorage.getItem(STORAGE_KEY);
@@ -399,6 +457,11 @@ function fromMinutes(value) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function normaliseDuration(value) {
+  const duration = Number.parseInt(value, 10);
+  return Number.isInteger(duration) && duration > 0 ? duration : 30;
+}
+
 function showMessage(text, tone) {
   message.textContent = text;
   message.className = `message visible ${tone}`;
@@ -414,4 +477,5 @@ function escapeHtml(value) {
 }
 
 render();
+syncBackendMedia();
 window.setInterval(renderNowPlaying, 30000);

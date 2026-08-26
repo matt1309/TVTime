@@ -1,0 +1,13 @@
+services:
+  tvtime:
+    build: .
+    image: tvtime:latest
+    container_name: tvtime
+    restart: unless-stopped
+    environment:
+      TVTIME_HOST: 0.0.0.0
+      TVTIME_PORT: 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./media:/media:ro
