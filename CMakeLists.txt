@@ -22,6 +22,8 @@ add_executable(tvtime_server
 )
 
 target_link_libraries(tvtime_server PRIVATE tvtime_core Threads::Threads)
+target_compile_features(tvtime_core PUBLIC cxx_std_17)
+target_compile_features(tvtime_server PRIVATE cxx_std_17)
 
 if(MSVC)
   target_compile_options(tvtime_core PRIVATE /W4)

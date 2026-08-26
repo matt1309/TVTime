@@ -38,9 +38,9 @@ int main(int argc, char* argv[]) {
     const std::filesystem::path mediaRoot =
         argc > 2 ? std::filesystem::path(argv[2]) : documentRoot / "media";
 
-    tvtime::MediaLibrary library;
-    library.addSource(std::make_shared<tvtime::LocalFileSource>(mediaRoot));
-    library.importFromSources();
+    auto library = std::make_shared<tvtime::MediaLibrary>();
+    library->addSource(std::make_shared<tvtime::LocalFileSource>(mediaRoot));
+    library->importFromSources();
 
     tvtime::server::HttpServer server(documentRoot, library);
     server.listen("127.0.0.1", parsePort(std::getenv("TVTIME_PORT")));

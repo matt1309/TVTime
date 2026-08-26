@@ -241,7 +241,14 @@ std::string route(
     return response(400, "Bad Request", "text/plain; charset=utf-8", "Bad request");
   }
 
-  if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath)) {
+  std::error_code fileError;
+  const bool exists = std::filesystem::exists(filePath, fileError);
+  if (fileError || !exists) {
+    return response(404, "Not Found", "text/plain; charset=utf-8", "Not found");
+  }
+
+  const bool regularFile = std::filesystem::is_regular_file(filePath, fileError);
+  if (fileError || !regularFile) {
     return response(404, "Not Found", "text/plain; charset=utf-8", "Not found");
   }
 
@@ -277,7 +284,7 @@ class Socket {
 void handleClient(
     int clientDescriptor,
     const std::filesystem::path& documentRoot,
-    const MediaLibrary& library) {
+    std::shared_ptr<const MediaLibrary> library) {
   const Socket client(clientDescriptor);
 
   std::string requestText;
@@ -312,7 +319,7 @@ void handleClient(
   std::string target;
   request >> method >> target;
 
-  const auto output = route(documentRoot, library, method, target);
+  const auto output = route(documentRoot, *library, method, target);
   std::size_t sent = 0;
   while (sent < output.size()) {
     const auto sentNow = send(
@@ -326,13 +333,14 @@ void handleClient(
     sent += static_cast<std::size_t>(sentNow);
   }
 }
+
 #endif
 
 }  // namespace
 
-HttpServer::HttpServer(std::filesystem::path documentRoot, MediaLibrary& library)
+HttpServer::HttpServer(std::filesystem::path documentRoot, std::shared_ptr<MediaLibrary> library)
     : documentRoot_(std::filesystem::absolute(std::move(documentRoot))),
-      library_(library) {}
+      library_(std::move(library)) {}
 
 void HttpServer::listen(const std::string& host, int port) {
 #ifdef _WIN32
@@ -371,10 +379,15 @@ void HttpServer::listen(const std::string& host, int port) {
   while (true) {
     const auto clientDescriptor = accept(serverSocket.descriptor(), nullptr, nullptr);
     if (clientDescriptor < 0) {
-      continue;
+      if (errno == EINTR || errno == EAGAIN) {
+        continue;
+      }
+
+      const auto message = std::string("accept failed: ") + std::strerror(errno);
+      throw std::runtime_error(message);
     }
 
-    std::thread(handleClient, clientDescriptor, documentRoot_, std::cref(library_)).detach();
+    std::thread(handleClient, clientDescriptor, documentRoot_, library_).detach();
   }
 #endif
 }
