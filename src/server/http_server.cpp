@@ -1,0 +1,275 @@
+#include "tvtime/server/http_server.h"
+
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
+#include <algorithm>
+#include <array>
+#include <cerrno>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+
+namespace tvtime::server {
+
+namespace {
+
+std::string jsonEscape(const std::string& value) {
+  std::ostringstream escaped;
+
+  for (const char ch : value) {
+    switch (ch) {
+      case '"':
+        escaped << "\\\"";
+        break;
+      case '\\':
+        escaped << "\\\\";
+        break;
+      case '\n':
+        escaped << "\\n";
+        break;
+      case '\r':
+        escaped << "\\r";
+        break;
+      case '\t':
+        escaped << "\\t";
+        break;
+      default:
+        escaped << ch;
+        break;
+    }
+  }
+
+  return escaped.str();
+}
+
+std::string videosJson(const MediaLibrary& library) {
+  std::ostringstream body;
+  body << "[";
+
+  const auto& videos = library.videos();
+  for (std::size_t index = 0; index < videos.size(); ++index) {
+    const auto& video = videos[index];
+    if (index != 0) {
+      body << ",";
+    }
+
+    body << "{\"id\":\"" << jsonEscape(video.id) << "\","
+         << "\"title\":\"" << jsonEscape(video.title) << "\","
+         << "\"genre\":\"" << jsonEscape(video.genre) << "\","
+         << "\"durationMinutes\":" << video.durationMinutes << ","
+         << "\"source\":\"" << jsonEscape(video.source) << "\","
+         << "\"uri\":\"" << jsonEscape(video.uri) << "\"}";
+  }
+
+  body << "]";
+  return body.str();
+}
+
+std::string sourcesJson(const MediaLibrary& library) {
+  std::ostringstream body;
+  body << "[";
+
+  const auto sources = library.sourceNames();
+  for (std::size_t index = 0; index < sources.size(); ++index) {
+    if (index != 0) {
+      body << ",";
+    }
+
+    body << "\"" << jsonEscape(sources[index]) << "\"";
+  }
+
+  body << "]";
+  return body.str();
+}
+
+std::string contentType(const std::filesystem::path& path) {
+  const auto extension = path.extension().string();
+
+  if (extension == ".html") {
+    return "text/html; charset=utf-8";
+  }
+  if (extension == ".css") {
+    return "text/css; charset=utf-8";
+  }
+  if (extension == ".js") {
+    return "application/javascript; charset=utf-8";
+  }
+  if (extension == ".json") {
+    return "application/json; charset=utf-8";
+  }
+
+  return "application/octet-stream";
+}
+
+std::string response(
+    int status,
+    const std::string& reason,
+    const std::string& type,
+    const std::string& body) {
+  std::ostringstream output;
+  output << "HTTP/1.1 " << status << " " << reason << "\r\n"
+         << "Content-Type: " << type << "\r\n"
+         << "Content-Length: " << body.size() << "\r\n"
+         << "Connection: close\r\n\r\n"
+         << body;
+
+  return output.str();
+}
+
+std::string decodePath(std::string path) {
+  const auto query = path.find('?');
+  if (query != std::string::npos) {
+    path.erase(query);
+  }
+
+  std::replace(path.begin(), path.end(), '\\', '/');
+  return path;
+}
+
+bool isUnsafePath(const std::filesystem::path& path) {
+  return path.is_absolute() ||
+         std::any_of(
+             path.begin(),
+             path.end(),
+             [](const auto& part) { return part == ".."; });
+}
+
+std::string readFile(const std::filesystem::path& path) {
+  std::ifstream file(path, std::ios::binary);
+  std::ostringstream body;
+  body << file.rdbuf();
+  return body.str();
+}
+
+std::string route(
+    const std::filesystem::path& documentRoot,
+    const MediaLibrary& library,
+    const std::string& method,
+    const std::string& target) {
+  if (method != "GET") {
+    return response(405, "Method Not Allowed", "text/plain; charset=utf-8", "Method not allowed");
+  }
+
+  if (target == "/api/health") {
+    return response(200, "OK", "application/json; charset=utf-8", "{\"status\":\"ok\",\"service\":\"TVTime\"}");
+  }
+
+  if (target == "/api/videos") {
+    return response(200, "OK", "application/json; charset=utf-8", videosJson(library));
+  }
+
+  if (target == "/api/sources") {
+    return response(200, "OK", "application/json; charset=utf-8", sourcesJson(library));
+  }
+
+  auto decoded = decodePath(target);
+  if (decoded == "/") {
+    decoded = "/index.html";
+  }
+
+  std::filesystem::path relative = decoded.substr(1);
+  relative = relative.lexically_normal();
+
+  if (isUnsafePath(relative)) {
+    return response(400, "Bad Request", "text/plain; charset=utf-8", "Bad request");
+  }
+
+  const auto filePath = documentRoot / relative;
+  if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath)) {
+    return response(404, "Not Found", "text/plain; charset=utf-8", "Not found");
+  }
+
+  return response(200, "OK", contentType(filePath), readFile(filePath));
+}
+
+#ifndef _WIN32
+class Socket {
+ public:
+  explicit Socket(int descriptor) : descriptor_(descriptor) {}
+  ~Socket() {
+    if (descriptor_ >= 0) {
+      close(descriptor_);
+    }
+  }
+
+  Socket(const Socket&) = delete;
+  Socket& operator=(const Socket&) = delete;
+
+  [[nodiscard]] int descriptor() const {
+    return descriptor_;
+  }
+
+ private:
+  int descriptor_;
+};
+#endif
+
+}  // namespace
+
+HttpServer::HttpServer(std::filesystem::path documentRoot, MediaLibrary& library)
+    : documentRoot_(std::filesystem::absolute(std::move(documentRoot))),
+      library_(library) {}
+
+void HttpServer::listen(const std::string& host, int port) {
+#ifdef _WIN32
+  (void)host;
+  (void)port;
+  throw std::runtime_error("The development HTTP server currently supports POSIX sockets only.");
+#else
+  const Socket serverSocket(socket(AF_INET, SOCK_STREAM, 0));
+  if (serverSocket.descriptor() < 0) {
+    throw std::runtime_error(std::string("socket failed: ") + std::strerror(errno));
+  }
+
+  int enabled = 1;
+  setsockopt(serverSocket.descriptor(), SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
+
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(static_cast<uint16_t>(port));
+  if (inet_pton(AF_INET, host.c_str(), &address.sin_addr) != 1) {
+    throw std::runtime_error("host must be an IPv4 address");
+  }
+
+  if (bind(serverSocket.descriptor(), reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
+    throw std::runtime_error(std::string("bind failed: ") + std::strerror(errno));
+  }
+
+  if (::listen(serverSocket.descriptor(), 16) < 0) {
+    throw std::runtime_error(std::string("listen failed: ") + std::strerror(errno));
+  }
+
+  std::cout << "TVTime server listening on http://" << host << ":" << port << "\n";
+
+  while (true) {
+    const Socket client(accept(serverSocket.descriptor(), nullptr, nullptr));
+    if (client.descriptor() < 0) {
+      continue;
+    }
+
+    std::array<char, 8192> buffer{};
+    const auto bytesRead = recv(client.descriptor(), buffer.data(), buffer.size() - 1, 0);
+    if (bytesRead <= 0) {
+      continue;
+    }
+
+    std::istringstream request(std::string(buffer.data(), static_cast<std::size_t>(bytesRead)));
+    std::string method;
+    std::string target;
+    request >> method >> target;
+
+    const auto output = route(documentRoot_, library_, method, target);
+    send(client.descriptor(), output.data(), output.size(), 0);
+  }
+#endif
+}
+
+}  // namespace tvtime::server
