@@ -1,7 +1,10 @@
 #include <cstdlib>
+#include <cerrno>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "tvtime/media_library.h"
@@ -15,7 +18,15 @@ int parsePort(const char* value) {
     return 8080;
   }
 
-  return std::stoi(value);
+  errno = 0;
+  char* end = nullptr;
+  const auto port = std::strtol(value, &end, 10);
+  if (errno != 0 || end == value || *end != '\0' || port < 1 ||
+      port > std::numeric_limits<uint16_t>::max()) {
+    throw std::invalid_argument("TVTIME_PORT must be an integer from 1 to 65535");
+  }
+
+  return static_cast<int>(port);
 }
 
 }  // namespace

@@ -12,6 +12,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -42,7 +43,12 @@ std::string jsonEscape(const std::string& value) {
         escaped << "\\t";
         break;
       default:
-        escaped << ch;
+        if (static_cast<unsigned char>(ch) < 0x20) {
+          escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                  << static_cast<int>(static_cast<unsigned char>(ch)) << std::dec;
+        } else {
+          escaped << ch;
+        }
         break;
     }
   }
@@ -230,7 +236,10 @@ void HttpServer::listen(const std::string& host, int port) {
   }
 
   int enabled = 1;
-  setsockopt(serverSocket.descriptor(), SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
+  if (setsockopt(serverSocket.descriptor(), SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled)) <
+      0) {
+    std::cerr << "warning: SO_REUSEADDR failed: " << std::strerror(errno) << "\n";
+  }
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
@@ -255,19 +264,45 @@ void HttpServer::listen(const std::string& host, int port) {
       continue;
     }
 
-    std::array<char, 8192> buffer{};
-    const auto bytesRead = recv(client.descriptor(), buffer.data(), buffer.size() - 1, 0);
-    if (bytesRead <= 0) {
+    std::string requestText;
+    std::array<char, 4096> buffer{};
+    while (requestText.find("\r\n\r\n") == std::string::npos && requestText.size() < 16384) {
+      const auto bytesRead = recv(client.descriptor(), buffer.data(), buffer.size(), 0);
+      if (bytesRead <= 0) {
+        break;
+      }
+
+      requestText.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+    }
+
+    if (requestText.find("\r\n\r\n") == std::string::npos) {
+      const auto output = response(
+          400,
+          "Bad Request",
+          "text/plain; charset=utf-8",
+          "Incomplete or oversized request headers");
+      send(client.descriptor(), output.data(), output.size(), 0);
       continue;
     }
 
-    std::istringstream request(std::string(buffer.data(), static_cast<std::size_t>(bytesRead)));
+    std::istringstream request(requestText);
     std::string method;
     std::string target;
     request >> method >> target;
 
     const auto output = route(documentRoot_, library_, method, target);
-    send(client.descriptor(), output.data(), output.size(), 0);
+    std::size_t sent = 0;
+    while (sent < output.size()) {
+      const auto sentNow = send(
+          client.descriptor(),
+          output.data() + sent,
+          output.size() - sent,
+          0);
+      if (sentNow <= 0) {
+        break;
+      }
+      sent += static_cast<std::size_t>(sentNow);
+    }
   }
 #endif
 }
