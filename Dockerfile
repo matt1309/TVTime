@@ -1,30 +1,29 @@
-FROM alpine:3.20 AS build
-
-RUN apk add --no-cache cmake g++ make
+FROM gcc:13-bookworm AS build
 
 WORKDIR /src
 COPY . .
 
-RUN cmake -S . -B /build -DCMAKE_BUILD_TYPE=Release \
-  && cmake --build /build --parallel
+RUN g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -pthread \
+  -static-libstdc++ -static-libgcc \
+  -Iinclude \
+  src/core/media_library.cpp \
+  src/core/schedule.cpp \
+  src/plugins/local_file_source.cpp \
+  src/server/http_server.cpp \
+  src/server/main.cpp \
+  -o /usr/local/bin/tvtime_server
 
-FROM alpine:3.20
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache libstdc++ \
-  && addgroup -S tvtime \
-  && adduser -S -G tvtime tvtime \
-  && mkdir -p /app/public /media \
-  && chown -R tvtime:tvtime /app /media
+WORKDIR /app
 
-COPY --from=build /build/tvtime_server /usr/local/bin/tvtime_server
+COPY --from=build /usr/local/bin/tvtime_server /usr/local/bin/tvtime_server
 COPY index.html app.js styles.css /app/public/
 
-USER tvtime
+USER 10001:10001
 ENV TVTIME_HOST=0.0.0.0
 ENV TVTIME_PORT=8080
 EXPOSE 8080
 VOLUME ["/media"]
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -qO- "http://127.0.0.1:${TVTIME_PORT}/api/health" >/dev/null || exit 1
 
 CMD ["/usr/local/bin/tvtime_server", "/app/public", "/media"]
