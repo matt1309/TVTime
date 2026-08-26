@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -16,11 +17,12 @@ class MediaLibrary {
   void addVideo(Video video);
   void importFromSources();
 
-  [[nodiscard]] const std::vector<Video>& videos() const;
+  [[nodiscard]] std::vector<Video> videos() const;
   [[nodiscard]] std::vector<std::string> sourceNames() const;
   [[nodiscard]] std::optional<Video> findVideo(const std::string& id) const;
 
  private:
+  mutable std::shared_mutex mutex_;
   std::vector<Video> videos_;
   std::vector<std::shared_ptr<SourcePlugin>> sources_;
 };

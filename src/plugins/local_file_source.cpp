@@ -47,13 +47,8 @@ std::vector<Video> LocalFileSource::discover() {
 
   while (!error && iterator != end) {
     const auto& entry = *iterator;
-    if (!entry.is_regular_file(error) && error) {
-      error.clear();
-      iterator.increment(error);
-      continue;
-    }
-
-    if (!entry.is_regular_file(error) || !isSupportedVideoFile(entry.path())) {
+    const bool regularFile = entry.is_regular_file(error);
+    if (error || !regularFile || !isSupportedVideoFile(entry.path())) {
       error.clear();
       iterator.increment(error);
       continue;

@@ -66,7 +66,7 @@ std::string videosJson(const MediaLibrary& library) {
   std::ostringstream body;
   body << "[";
 
-  const auto& videos = library.videos();
+  const auto videos = library.videos();
   for (std::size_t index = 0; index < videos.size(); ++index) {
     const auto& video = videos[index];
     if (index != 0) {
@@ -167,6 +167,11 @@ bool isInsideRoot(
 
   const auto canonicalRequested = std::filesystem::weakly_canonical(requestedPath, error);
   if (error) {
+    return false;
+  }
+
+  if (std::distance(canonicalRequested.begin(), canonicalRequested.end()) <
+      std::distance(canonicalRoot.begin(), canonicalRoot.end())) {
     return false;
   }
 
@@ -277,18 +282,22 @@ void handleClient(
 
   std::string requestText;
   std::array<char, 4096> buffer{};
-  while (requestText.find("\r\n\r\n") == std::string::npos && requestText.size() < 16384) {
+  auto headerEnd = std::string::npos;
+  while (headerEnd == std::string::npos && requestText.size() < 16384) {
     const auto bytesRemaining = 16384 - requestText.size();
     const auto bytesToRead = std::min(buffer.size(), bytesRemaining);
+    const auto previousSize = requestText.size();
     const auto bytesRead = recv(client.descriptor(), buffer.data(), bytesToRead, 0);
     if (bytesRead <= 0) {
       break;
     }
 
     requestText.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+    const auto searchFrom = previousSize > 3 ? previousSize - 3 : 0;
+    headerEnd = requestText.find("\r\n\r\n", searchFrom);
   }
 
-  if (requestText.find("\r\n\r\n") == std::string::npos) {
+  if (headerEnd == std::string::npos) {
     const auto output = response(
         400,
         "Bad Request",
