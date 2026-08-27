@@ -2,6 +2,8 @@
 
 TVTime is a low-dependency web app prototype for building "old school TV" schedules from your own media library.
 
+![TVTime Frontend Layout](screenshot.png)
+
 ## What is in this repository today?
 
 This first cut keeps dependencies at zero:
