@@ -266,9 +266,7 @@ iptvForm.addEventListener("submit", (event) => {
 
     // Live IPTV channels run all day; replace any previous all-day slot for
     // this channel so re-importing a playlist keeps the guide in sync.
-    state.schedule = state.schedule.filter(
-      (slot) => !(slot.channel === entry.title && slot.mediaId === media.id)
-    );
+    state.schedule = state.schedule.filter((slot) => slot.channel !== entry.title);
     state.schedule.push({
       channel: entry.title,
       mediaId: media.id,
