@@ -227,6 +227,59 @@ std::string route(
     return response(200, "OK", "application/json; charset=utf-8", sourcesJson(library));
   }
 
+  if (target.rfind("/api/stream/", 0) == 0) {
+    const std::string videoId = target.substr(12);
+    if (videoId.empty()) {
+      return response(400, "Bad Request", "text/plain; charset=utf-8", "Video ID required");
+    }
+
+    const auto videos = library.videos();
+    const auto video = std::find_if(videos.begin(), videos.end(), [&videoId](const Video& v) {
+      return v.id == videoId;
+    });
+
+    if (video == videos.end()) {
+      return response(404, "Not Found", "text/plain; charset=utf-8", "Video not found");
+    }
+
+    if (video->uri.empty()) {
+      return response(404, "Not Found", "text/plain; charset=utf-8", "No URI available for this video");
+    }
+
+    const std::filesystem::path videoPath(video->uri);
+    std::error_code fileError;
+    const bool exists = std::filesystem::exists(videoPath, fileError);
+    if (fileError || !exists) {
+      return response(404, "Not Found", "text/plain; charset=utf-8", "Video file not found");
+    }
+
+    const bool regularFile = std::filesystem::is_regular_file(videoPath, fileError);
+    if (fileError || !regularFile) {
+      return response(404, "Not Found", "text/plain; charset=utf-8", "Not a regular file");
+    }
+
+    const auto body = readFile(videoPath);
+    if (!body.has_value()) {
+      return response(500, "Internal Server Error", "text/plain; charset=utf-8", "Unable to read video file");
+    }
+
+    const auto extension = videoPath.extension().string();
+    std::string mimeType = "application/octet-stream";
+    if (extension == ".mp4") {
+      mimeType = "video/mp4";
+    } else if (extension == ".mkv") {
+      mimeType = "video/x-matroska";
+    } else if (extension == ".webm") {
+      mimeType = "video/webm";
+    } else if (extension == ".avi") {
+      mimeType = "video/x-msvideo";
+    } else if (extension == ".mov") {
+      mimeType = "video/quicktime";
+    }
+
+    return response(200, "OK", mimeType, *body);
+  }
+
   auto decoded = decodePath(target);
   if (decoded == "/") {
     decoded = "/index.html";
