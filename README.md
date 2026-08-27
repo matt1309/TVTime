@@ -20,6 +20,8 @@ The prototype lets you:
 - build a schedule from scratch
 - generate a schedule window from a chosen genre
 - view a TV guide and "now playing" summary in the browser
+- **watch channels with the built-in HTML5 video player**
+- **discover DLNA/UPnP media servers on your network**
 
 All data is stored locally in `localStorage`, which keeps the initial project easy to understand and easy to evolve.
 
@@ -56,14 +58,16 @@ Suggested backend responsibilities:
 
 Add source plugins behind clear interfaces:
 
-- local files
-- DLNA discovery
+- local files ✓
+- DLNA discovery ✓ (basic SSDP discovery implemented)
 - HTTP/RTSP streams
 - later: provider/import integrations where legally and technically appropriate
 
+**Note:** The current DLNA implementation includes basic device discovery using SSDP (Simple Service Discovery Protocol). Full DLNA content browsing would require additional XML and SOAP parsing capabilities.
+
 ### Phase 4: playback targets
 
-- web player
+- web player ✓ (HTML5 video player with streaming support)
 - lightweight device apps that reuse the same guide API
 - future experimental output layers such as DVB-T hardware tooling
 
@@ -109,6 +113,7 @@ Current API endpoints:
 - `GET /api/health`
 - `GET /api/sources`
 - `GET /api/videos`
+- `GET /api/stream/{video_id}` - Stream video content for playback
 
 ## Running with Docker
 
