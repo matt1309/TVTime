@@ -63,6 +63,9 @@ const nowPlaying = document.querySelector("#now-playing");
 const message = document.querySelector("#message");
 const libraryStatus = document.querySelector("#library-status");
 const syncLibrary = document.querySelector("#sync-library");
+const videoPlayerContainer = document.querySelector("#video-player-container");
+const videoPlayer = document.querySelector("#video-player");
+const playCurrentBtn = document.querySelector("#play-current-btn");
 
 channelForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -223,6 +226,33 @@ syncLibrary.addEventListener("click", () => {
   syncBackendMedia({ showSuccess: true });
 });
 
+playCurrentBtn.addEventListener("click", () => {
+  const liveSlot = findLiveSlot();
+  if (!liveSlot) {
+    showMessage("No programme is currently live to play.", "warning");
+    return;
+  }
+
+  const media = state.media.find((item) => item.id === liveSlot.mediaId);
+  if (!media) {
+    showMessage("Media item not found for current programme.", "warning");
+    return;
+  }
+
+  if (!media.uri && !media.source) {
+    showMessage("No playback source available for this media.", "warning");
+    return;
+  }
+
+  const videoUrl = media.uri || `/api/stream/${encodeURIComponent(media.id)}`;
+  videoPlayer.src = videoUrl;
+  videoPlayerContainer.style.display = "block";
+  videoPlayer.play().catch((error) => {
+    showMessage(`Failed to play video: ${error.message}`, "warning");
+    window.console.error("Video playback error:", error);
+  });
+});
+
 async function syncBackendMedia({ showSuccess = false } = {}) {
   try {
     const response = await fetch("/api/videos", {
@@ -248,7 +278,8 @@ async function syncBackendMedia({ showSuccess = false } = {}) {
         title: video.title || "Untitled video",
         genre: video.genre || "unknown",
         duration: normaliseDuration(video.durationMinutes),
-        source: video.source || "backend"
+        source: video.source || "backend",
+        uri: video.uri || ""
       }));
 
     if (imported.length > 0) {
@@ -370,18 +401,26 @@ function renderNowPlaying() {
   const liveSlot = findLiveSlot();
   if (!liveSlot) {
     nowPlaying.textContent = `No scheduled programme is live on ${selectedChannel} right now.`;
+    videoPlayerContainer.style.display = "none";
     return;
   }
 
   const media = state.media.find((item) => item.id === liveSlot.mediaId);
   if (!media) {
     nowPlaying.textContent = `A live slot exists on ${selectedChannel}, but its media item is missing.`;
+    videoPlayerContainer.style.display = "none";
     return;
   }
 
   nowPlaying.innerHTML = `<strong>${escapeHtml(media.title)}</strong> is live on ${escapeHtml(
     liveSlot.channel
   )} until ${liveSlot.end}.`;
+  
+  if (media.uri || media.source) {
+    videoPlayerContainer.style.display = "block";
+  } else {
+    videoPlayerContainer.style.display = "none";
+  }
 }
 
 function fillSelect(select, values, selectedValue) {
