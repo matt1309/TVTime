@@ -8,6 +8,7 @@ add_library(tvtime_core
   src/core/media_library.cpp
   src/core/schedule.cpp
   src/plugins/local_file_source.cpp
+  src/plugins/dlna_source.cpp
 )
 
 target_include_directories(tvtime_core PUBLIC include)
@@ -20,6 +21,10 @@ add_executable(tvtime_server
 target_link_libraries(tvtime_server PRIVATE tvtime_core Threads::Threads)
 target_compile_features(tvtime_core PUBLIC cxx_std_17)
 target_compile_features(tvtime_server PRIVATE cxx_std_17)
+
+if(WIN32)
+  target_link_libraries(tvtime_core PUBLIC ws2_32)
+endif()
 
 if(MSVC)
   target_compile_options(tvtime_core PRIVATE /W4)
