@@ -24,7 +24,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -43,7 +44,8 @@ button:hover {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   margin-top: 0.35rem;
   padding: 0.7rem 0.8rem;
@@ -51,6 +53,8 @@ select {
   border-radius: 0.5rem;
   background: #0f172a;
   color: var(--text);
+  font-family: inherit;
+  resize: vertical;
 }
 
 label {
@@ -170,6 +174,32 @@ label {
 
 .message.warning {
   border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+}
+
+.tuner-info {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+
+.tuner-info div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.5rem;
+  background: #0f172a;
+}
+
+.tuner-info dt {
+  color: var(--muted);
+}
+
+.tuner-info dd {
+  margin: 0;
+  font-weight: 700;
+  text-align: right;
+  word-break: break-all;
 }
 
 @media (max-width: 900px) {

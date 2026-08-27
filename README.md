@@ -4,6 +4,11 @@ TVTime is a low-dependency web app prototype for building "old school TV" schedu
 
 ![TVTime Frontend Layout](screenshot.png)
 
+TVTime also supports importing IPTV playlists as live channels and can emulate
+an HDHomeRun network tuner for DVR software such as Plex, Emby or Jellyfin:
+
+![TVTime IPTV guide and virtual HDHomeRun tuner](screenshot-iptv-hdhomerun.png)
+
 ## What is in this repository today?
 
 This first cut keeps dependencies at zero:
@@ -22,6 +27,8 @@ The prototype lets you:
 - view a TV guide and "now playing" summary in the browser
 - **watch channels with the built-in HTML5 video player**
 - **discover DLNA/UPnP media servers on your network**
+- **import IPTV M3U playlists as live channels with an always-on guide slot**
+- **expose the backend as a virtual HDHomeRun tuner for DVR apps**
 
 All data is stored locally in `localStorage`, which keeps the initial project easy to understand and easy to evolve.
 
@@ -113,7 +120,37 @@ Current API endpoints:
 - `GET /api/health`
 - `GET /api/sources`
 - `GET /api/videos`
-- `GET /api/stream/{video_id}` - Stream video content for playback
+- `GET /api/stream/{video_id}` - Stream video content for playback, or redirect
+  to the origin URL for remote sources such as IPTV streams
+
+## IPTV guide and channels
+
+TVTime can import standard [M3U/M3U8](https://en.wikipedia.org/wiki/M3U)
+playlists (the format used by virtually every IPTV provider) as live
+channels:
+
+- **Frontend:** paste playlist text into the "IPTV guide & channels" card.
+  Each `#EXTINF` entry becomes its own channel with an all-day "live" slot in
+  the TV guide, grouped by its `group-title` attribute as the genre.
+- **Backend:** drop an `iptv.m3u` file into the media directory passed to
+  `tvtime_server` (or point `TVTIME_IPTV_M3U` at any file path) and restart the
+  server. Discovered channels are merged into `GET /api/videos` automatically
+  and appear after using "Sync backend media" in the frontend.
+
+## Virtual HDHomeRun / TV headend
+
+The backend emulates the JSON API exposed by [HDHomeRun](https://www.silicondust.com/)
+network tuners, so TVTime can be added as a live TV source to DVR software
+such as Plex, Emby and Jellyfin (using "add device by IP/manual" tuner setup):
+
+- `GET /discover.json` - device identification (`DeviceID`, `TunerCount`, `BaseURL`, ...)
+- `GET /lineup.json` - the tunable channel lineup, built from every video with
+  a URI in the library (IPTV channels are the primary use case, but local and
+  DLNA sources are included too)
+- `GET /lineup_status.json` - scan status expected by HDHomeRun clients
+
+Point your DVR software at the TVTime server's IP address and port to add it
+as a tuner; no physical hardware is required.
 
 ## Running with Docker
 
