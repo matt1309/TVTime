@@ -9,6 +9,7 @@
 
 #include "tvtime/media_library.h"
 #include "tvtime/plugins/local_file_source.h"
+#include "tvtime/plugins/dlna_source.h"
 #include "tvtime/server/http_server.h"
 
 namespace {
@@ -48,6 +49,7 @@ int main(int argc, char* argv[]) {
 
     auto library = std::make_shared<tvtime::MediaLibrary>();
     library->addSource(std::make_shared<tvtime::LocalFileSource>(mediaRoot));
+    library->addSource(std::make_shared<tvtime::DlnaSource>());
     library->importFromSources();
 
     tvtime::server::HttpServer server(documentRoot, library);
