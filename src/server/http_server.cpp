@@ -523,12 +523,13 @@ std::string route(
   }
 
   if (method != "GET") {
+    const std::string allow = path == "/api/schedule" ? "GET, POST" : "GET";
     return response(
         405,
         "Method Not Allowed",
         "text/plain; charset=utf-8",
         "Method not allowed",
-        "Allow: GET, POST\r\n");
+        "Allow: " + allow + "\r\n");
   }
 
   if (path == "/api/schedule") {
@@ -554,6 +555,10 @@ std::string route(
       } catch (const std::exception&) {
         return response(400, "Bad Request", "application/json; charset=utf-8",
                          "{\"error\":\"minute must be an integer\"}");
+      }
+      if (minuteOfDay < 0 || minuteOfDay >= 24 * 60) {
+        return response(400, "Bad Request", "application/json; charset=utf-8",
+                         "{\"error\":\"minute must be between 0 and 1439\"}");
       }
     } else {
       const auto now = std::time(nullptr);

@@ -190,7 +190,9 @@ bool Schedule::loadFromFile(const std::filesystem::path& path) {
 
     const auto fields = splitTabs(line);
     if (fields.size() != 4) {
-      return false;
+      // Skip malformed lines rather than aborting the whole load so a single
+      // corrupt/truncated line doesn't lose every previously persisted slot.
+      continue;
     }
 
     ProgramSlot slot;
@@ -200,7 +202,7 @@ bool Schedule::loadFromFile(const std::filesystem::path& path) {
       slot.startMinute = std::stoi(fields[2]);
       slot.endMinute = std::stoi(fields[3]);
     } catch (const std::exception&) {
-      return false;
+      continue;
     }
 
     if (!addSlotLocked(loaded, slot)) {
