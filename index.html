@@ -130,6 +130,56 @@
         </section>
       </section>
 
+      <section class="grid">
+        <section class="card">
+          <h2>IPTV guide &amp; channels</h2>
+          <p class="muted">
+            Paste an M3U / M3U8 playlist from your IPTV provider. Each entry
+            becomes its own live channel with an all-day schedule slot.
+          </p>
+          <form id="iptv-form" class="stack">
+            <label>
+              Playlist (M3U)
+              <textarea
+                id="iptv-playlist"
+                name="iptv-playlist"
+                rows="6"
+                placeholder="#EXTM3U&#10;#EXTINF:-1 group-title=&quot;News&quot;,BBC News HD&#10;http://provider.example/stream/bbcnews.m3u8"
+              ></textarea>
+            </label>
+            <button type="submit">Import playlist</button>
+          </form>
+          <ul id="iptv-list" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Virtual HDHomeRun / tuner</h2>
+          <p class="muted">
+            TVTime emulates an HDHomeRun network tuner so DVR apps such as
+            Plex, Emby or Jellyfin can add it as a live TV source.
+          </p>
+          <dl class="tuner-info">
+            <div>
+              <dt>Status</dt>
+              <dd id="tuner-status">Checking backend&hellip;</dd>
+            </div>
+            <div>
+              <dt>Device ID</dt>
+              <dd id="tuner-device-id">&mdash;</dd>
+            </div>
+            <div>
+              <dt>Tuner base URL</dt>
+              <dd id="tuner-base-url">&mdash;</dd>
+            </div>
+            <div>
+              <dt>Channels in lineup</dt>
+              <dd id="tuner-channel-count">&mdash;</dd>
+            </div>
+          </dl>
+          <button id="refresh-tuner" type="button">Refresh tuner info</button>
+        </section>
+      </section>
+
       <section class="card">
         <div class="guide-header">
           <div>

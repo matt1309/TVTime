@@ -10,9 +10,20 @@
 #include "tvtime/media_library.h"
 #include "tvtime/plugins/local_file_source.h"
 #include "tvtime/plugins/dlna_source.h"
+#include "tvtime/plugins/iptv_source.h"
 #include "tvtime/server/http_server.h"
 
 namespace {
+
+std::filesystem::path parseIptvPlaylistPath(
+    const char* envValue,
+    const std::filesystem::path& mediaRoot) {
+  if (envValue != nullptr && envValue[0] != '\0') {
+    return std::filesystem::path(envValue);
+  }
+
+  return mediaRoot / "iptv.m3u";
+}
 
 int parsePort(const char* value) {
   if (value == nullptr) {
@@ -50,6 +61,8 @@ int main(int argc, char* argv[]) {
     auto library = std::make_shared<tvtime::MediaLibrary>();
     library->addSource(std::make_shared<tvtime::LocalFileSource>(mediaRoot));
     library->addSource(std::make_shared<tvtime::DlnaSource>());
+    library->addSource(std::make_shared<tvtime::IptvSource>(
+        parseIptvPlaylistPath(std::getenv("TVTIME_IPTV_M3U"), mediaRoot)));
     library->importFromSources();
 
     tvtime::server::HttpServer server(documentRoot, library);

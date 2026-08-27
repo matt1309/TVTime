@@ -9,6 +9,7 @@ add_library(tvtime_core
   src/core/schedule.cpp
   src/plugins/local_file_source.cpp
   src/plugins/dlna_source.cpp
+  src/plugins/iptv_source.cpp
 )
 
 target_include_directories(tvtime_core PUBLIC include)

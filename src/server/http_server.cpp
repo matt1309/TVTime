@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -82,6 +84,100 @@ std::string videosJson(const MediaLibrary& library) {
          << "\"durationMinutes\":" << video.durationMinutes << ","
          << "\"source\":\"" << jsonEscape(video.source) << "\","
          << "\"uri\":\"" << jsonEscape(video.uri) << "\"}";
+  }
+
+  body << "]";
+  return body.str();
+}
+
+std::string urlEncode(const std::string& value) {
+  std::ostringstream encoded;
+  for (const unsigned char ch : value) {
+    if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+      encoded << ch;
+    } else {
+      encoded << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+              << static_cast<int>(ch) << std::nouppercase << std::dec;
+    }
+  }
+  return encoded.str();
+}
+
+std::string urlDecode(const std::string& value) {
+  std::string decoded;
+  decoded.reserve(value.size());
+  for (std::size_t i = 0; i < value.size(); ++i) {
+    if (value[i] == '%' && i + 2 < value.size()) {
+      const std::string hex = value.substr(i + 1, 2);
+      char* end = nullptr;
+      const long code = std::strtol(hex.c_str(), &end, 16);
+      if (end == hex.c_str() + hex.size()) {
+        decoded += static_cast<char>(code);
+        i += 2;
+        continue;
+      }
+    }
+    decoded += value[i];
+  }
+  return decoded;
+}
+
+bool isRemoteUri(const std::string& uri) {
+  return uri.rfind("http://", 0) == 0 || uri.rfind("https://", 0) == 0;
+}
+
+// A stable identifier for the virtual tuner. Real HDHomeRun devices use an
+// 8 hex digit hardware ID; any fixed value works for software emulation.
+constexpr const char* kDeviceId = "TVT10001";
+constexpr const char* kFriendlyName = "TVTime HDHomeRun";
+constexpr int kTunerCount = 4;
+
+std::string discoverJson(const std::string& baseUrl) {
+  std::ostringstream body;
+  body << "{"
+       << "\"FriendlyName\":\"" << jsonEscape(kFriendlyName) << "\","
+       << "\"ModelNumber\":\"HDTC-2US\","
+       << "\"FirmwareName\":\"tvtime_tuner\","
+       << "\"FirmwareVersion\":\"20240101\","
+       << "\"DeviceID\":\"" << kDeviceId << "\","
+       << "\"DeviceAuth\":\"tvtime\","
+       << "\"TunerCount\":" << kTunerCount << ","
+       << "\"BaseURL\":\"" << jsonEscape(baseUrl) << "\","
+       << "\"LineupURL\":\"" << jsonEscape(baseUrl) << "/lineup.json\""
+       << "}";
+  return body.str();
+}
+
+std::string lineupStatusJson() {
+  return "{\"ScanInProgress\":0,\"ScanPossible\":1,\"Source\":\"Cable\","
+         "\"SourceList\":[\"Cable\"]}";
+}
+
+// Every discovered video acts as a tunable "channel" for DVR software such as
+// Plex or Emby. IPTV playlist entries are the primary intended use case, but
+// any indexed video (local file, DLNA, IPTV) can be tuned this way.
+std::string lineupJson(const MediaLibrary& library, const std::string& baseUrl) {
+  std::ostringstream body;
+  body << "[";
+
+  const auto videos = library.videos();
+  int guideNumber = 1;
+  bool first = true;
+  for (const auto& video : videos) {
+    if (video.uri.empty()) {
+      continue;
+    }
+
+    if (!first) {
+      body << ",";
+    }
+    first = false;
+
+    body << "{\"GuideNumber\":\"" << guideNumber << "\","
+         << "\"GuideName\":\"" << jsonEscape(video.title) << "\","
+         << "\"URL\":\"" << jsonEscape(baseUrl) << "/api/stream/"
+         << jsonEscape(urlEncode(video.id)) << "\"}";
+    ++guideNumber;
   }
 
   body << "]";
@@ -205,7 +301,10 @@ std::string route(
     const std::filesystem::path& documentRoot,
     const MediaLibrary& library,
     const std::string& method,
-    const std::string& target) {
+    const std::string& target,
+    const std::string& hostHeader) {
+  const std::string baseUrl = "http://" + (hostHeader.empty() ? "127.0.0.1:8080" : hostHeader);
+
   if (method != "GET") {
     return response(
         405,
@@ -227,8 +326,23 @@ std::string route(
     return response(200, "OK", "application/json; charset=utf-8", sourcesJson(library));
   }
 
+  // Virtual HDHomeRun / tuner emulation endpoints. These mirror the JSON API
+  // exposed by real HDHomeRun devices so DVR software such as Plex or Emby
+  // can discover TVTime as a network tuner and stream channels through it.
+  if (target == "/discover.json") {
+    return response(200, "OK", "application/json; charset=utf-8", discoverJson(baseUrl));
+  }
+
+  if (target == "/lineup.json") {
+    return response(200, "OK", "application/json; charset=utf-8", lineupJson(library, baseUrl));
+  }
+
+  if (target == "/lineup_status.json") {
+    return response(200, "OK", "application/json; charset=utf-8", lineupStatusJson());
+  }
+
   if (target.rfind("/api/stream/", 0) == 0) {
-    const std::string videoId = target.substr(12);
+    const std::string videoId = urlDecode(target.substr(12));
     if (videoId.empty()) {
       return response(400, "Bad Request", "text/plain; charset=utf-8", "Video ID required");
     }
@@ -244,6 +358,17 @@ std::string route(
 
     if (video->uri.empty()) {
       return response(404, "Not Found", "text/plain; charset=utf-8", "No URI available for this video");
+    }
+
+    // IPTV (and other remote) sources are streamed by redirecting the client
+    // directly to the origin URL rather than proxying the bytes ourselves.
+    if (isRemoteUri(video->uri)) {
+      return response(
+          302,
+          "Found",
+          "text/plain; charset=utf-8",
+          "",
+          "Location: " + video->uri + "\r\n");
     }
 
     const std::filesystem::path videoPath(video->uri);
@@ -363,6 +488,41 @@ bool reserveClientSlot(const std::shared_ptr<std::atomic_size_t>& activeClients)
   return false;
 }
 
+std::string trimHeaderValue(const std::string& value) {
+  const auto begin = value.find_first_not_of(" \t\r\n");
+  if (begin == std::string::npos) {
+    return "";
+  }
+
+  const auto end = value.find_last_not_of(" \t\r\n");
+  return value.substr(begin, end - begin + 1);
+}
+
+std::string extractHeader(const std::string& headerBlock, const std::string& name) {
+  std::istringstream headerStream(headerBlock);
+  std::string line;
+  // Skip the request line (method/target/version).
+  std::getline(headerStream, line);
+
+  while (std::getline(headerStream, line)) {
+    const auto colon = line.find(':');
+    if (colon == std::string::npos) {
+      continue;
+    }
+
+    std::string key = line.substr(0, colon);
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char ch) {
+      return static_cast<char>(std::tolower(ch));
+    });
+
+    if (key == name) {
+      return trimHeaderValue(line.substr(colon + 1));
+    }
+  }
+
+  return "";
+}
+
 void handleClient(
     int clientDescriptor,
     const std::filesystem::path& documentRoot,
@@ -401,7 +561,9 @@ void handleClient(
   std::string target;
   request >> method >> target;
 
-  const auto output = route(documentRoot, *library, method, target);
+  const std::string hostHeader = extractHeader(requestText.substr(0, headerEnd), "host");
+
+  const auto output = route(documentRoot, *library, method, target, hostHeader);
   sendResponse(client.descriptor(), output);
 }
 

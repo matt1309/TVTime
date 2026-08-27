@@ -52,6 +52,7 @@ const channelForm = document.querySelector("#channel-form");
 const mediaForm = document.querySelector("#media-form");
 const manualScheduleForm = document.querySelector("#manual-schedule-form");
 const autoScheduleForm = document.querySelector("#auto-schedule-form");
+const iptvForm = document.querySelector("#iptv-form");
 const channelList = document.querySelector("#channel-list");
 const mediaList = document.querySelector("#media-list");
 const manualChannel = document.querySelector("#manual-channel");
@@ -66,6 +67,12 @@ const syncLibrary = document.querySelector("#sync-library");
 const videoPlayerContainer = document.querySelector("#video-player-container");
 const videoPlayer = document.querySelector("#video-player");
 const playCurrentBtn = document.querySelector("#play-current-btn");
+const iptvList = document.querySelector("#iptv-list");
+const tunerStatus = document.querySelector("#tuner-status");
+const tunerDeviceId = document.querySelector("#tuner-device-id");
+const tunerBaseUrl = document.querySelector("#tuner-base-url");
+const tunerChannelCount = document.querySelector("#tuner-channel-count");
+const refreshTunerBtn = document.querySelector("#refresh-tuner");
 
 channelForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -226,6 +233,64 @@ syncLibrary.addEventListener("click", () => {
   syncBackendMedia({ showSuccess: true });
 });
 
+iptvForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const playlistText = document.querySelector("#iptv-playlist").value;
+  const entries = parseM3u(playlistText);
+
+  if (entries.length === 0) {
+    showMessage("Paste a valid M3U playlist with at least one channel.", "warning");
+    return;
+  }
+
+  let addedChannels = 0;
+  entries.forEach((entry) => {
+    if (!state.channels.includes(entry.title)) {
+      state.channels.push(entry.title);
+      addedChannels += 1;
+    }
+
+    const existing = state.media.find((item) => item.uri === entry.url);
+    const media = existing || {
+      id: createId(),
+      title: entry.title,
+      genre: entry.genre,
+      duration: 0,
+      source: "iptv",
+      uri: entry.url
+    };
+
+    if (!existing) {
+      state.media.push(media);
+    }
+
+    // Live IPTV channels run all day; replace any previous all-day slot for
+    // this channel so re-importing a playlist keeps the guide in sync.
+    state.schedule = state.schedule.filter((slot) => slot.channel !== entry.title);
+    state.schedule.push({
+      channel: entry.title,
+      mediaId: media.id,
+      start: "00:00",
+      end: "23:59"
+    });
+  });
+
+  sortSchedule();
+  persistState();
+  iptvForm.reset();
+  renderIptvList();
+  render();
+  showMessage(
+    `Imported ${entries.length} IPTV channel${entries.length === 1 ? "" : "s"}` +
+      (addedChannels > 0 ? ` (${addedChannels} new).` : "."),
+    "success"
+  );
+});
+
+refreshTunerBtn.addEventListener("click", () => {
+  refreshTunerInfo();
+});
+
 playCurrentBtn.addEventListener("click", () => {
   const liveSlot = findLiveSlot();
   if (!liveSlot) {
@@ -306,6 +371,89 @@ async function syncBackendMedia({ showSuccess = false } = {}) {
   }
 }
 
+function parseM3u(text) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim());
+  const entries = [];
+  let pendingTitle = "";
+  let pendingGenre = "iptv";
+
+  lines.forEach((line) => {
+    if (!line) {
+      return;
+    }
+
+    if (line.startsWith("#EXTINF:")) {
+      const groupMatch = line.match(/group-title="([^"]*)"/i);
+      pendingGenre = groupMatch && groupMatch[1] ? groupMatch[1] : "iptv";
+      const commaIndex = line.lastIndexOf(",");
+      pendingTitle = commaIndex >= 0 ? line.slice(commaIndex + 1).trim() : "";
+      return;
+    }
+
+    if (line.startsWith("#")) {
+      return;
+    }
+
+    entries.push({
+      title: pendingTitle || line,
+      genre: pendingGenre,
+      url: line
+    });
+    pendingTitle = "";
+    pendingGenre = "iptv";
+  });
+
+  return entries;
+}
+
+function renderIptvList() {
+  iptvList.innerHTML = "";
+  const iptvChannels = state.media.filter((item) => item.source === "iptv");
+
+  if (iptvChannels.length === 0) {
+    const empty = document.createElement("li");
+    empty.textContent = "No IPTV channels imported yet.";
+    iptvList.appendChild(empty);
+    return;
+  }
+
+  iptvChannels.forEach((item) => {
+    const row = document.createElement("li");
+    row.innerHTML = `<strong>${escapeHtml(item.title)}</strong> · ${escapeHtml(
+      item.genre
+    )} · Live`;
+    iptvList.appendChild(row);
+  });
+}
+
+async function refreshTunerInfo() {
+  tunerStatus.textContent = "Checking backend...";
+  try {
+    const [discoverResponse, lineupResponse] = await Promise.all([
+      fetch("/discover.json", { headers: { Accept: "application/json" } }),
+      fetch("/lineup.json", { headers: { Accept: "application/json" } })
+    ]);
+
+    if (!discoverResponse.ok || !lineupResponse.ok) {
+      throw new Error("tuner endpoints unavailable");
+    }
+
+    const discover = await discoverResponse.json();
+    const lineup = await lineupResponse.json();
+
+    tunerStatus.textContent = "Online — ready for Plex/Emby/Jellyfin";
+    tunerDeviceId.textContent = discover.DeviceID || "unknown";
+    tunerBaseUrl.textContent = discover.BaseURL || "unknown";
+    tunerChannelCount.textContent = Array.isArray(lineup) ? String(lineup.length) : "0";
+  } catch (error) {
+    tunerStatus.textContent = "Offline (start the C++ backend to enable tuner emulation).";
+    tunerDeviceId.textContent = "—";
+    tunerBaseUrl.textContent = "—";
+    tunerChannelCount.textContent = "—";
+    window.console.info("TVTime tuner info unavailable:", error);
+  }
+}
+
 function loadState() {
   const saved = window.localStorage.getItem(STORAGE_KEY);
   if (!saved) {
@@ -327,6 +475,7 @@ function persistState() {
 function render(selectedChannel = guideChannel.value || state.channels[0]) {
   renderChannels();
   renderMedia();
+  renderIptvList();
   renderSelects(selectedChannel);
   renderGuide(selectedChannel);
   renderNowPlaying();
@@ -345,9 +494,11 @@ function renderMedia() {
   mediaList.innerHTML = "";
   state.media.forEach((item) => {
     const row = document.createElement("li");
+    const durationLabel =
+      item.source === "iptv" ? "Live" : `${Number(item.duration)} min`;
     row.innerHTML = `<strong>${escapeHtml(item.title)}</strong> · ${escapeHtml(
       item.genre
-    )} · ${Number(item.duration)} min · ${escapeHtml(item.source)}`;
+    )} · ${durationLabel} · ${escapeHtml(item.source)}`;
     mediaList.appendChild(row);
   });
 }
@@ -517,4 +668,5 @@ function escapeHtml(value) {
 
 render();
 syncBackendMedia();
+refreshTunerInfo();
 window.setInterval(renderNowPlaying, 30000);
