@@ -11,6 +11,7 @@
 #include "tvtime/plugins/local_file_source.h"
 #include "tvtime/plugins/dlna_source.h"
 #include "tvtime/plugins/iptv_source.h"
+#include "tvtime/schedule.h"
 #include "tvtime/server/http_server.h"
 
 namespace {
@@ -23,6 +24,16 @@ std::filesystem::path parseIptvPlaylistPath(
   }
 
   return mediaRoot / "iptv.m3u";
+}
+
+std::filesystem::path parseSchedulePath(
+    const char* envValue,
+    const std::filesystem::path& mediaRoot) {
+  if (envValue != nullptr && envValue[0] != '\0') {
+    return std::filesystem::path(envValue);
+  }
+
+  return mediaRoot / "schedule.tsv";
 }
 
 int parsePort(const char* value) {
@@ -65,7 +76,11 @@ int main(int argc, char* argv[]) {
         parseIptvPlaylistPath(std::getenv("TVTIME_IPTV_M3U"), mediaRoot)));
     library->importFromSources();
 
-    tvtime::server::HttpServer server(documentRoot, library);
+    auto schedule = std::make_shared<tvtime::Schedule>();
+    const auto scheduleFile =
+        parseSchedulePath(std::getenv("TVTIME_SCHEDULE_FILE"), mediaRoot);
+
+    tvtime::server::HttpServer server(documentRoot, library, schedule, scheduleFile);
     server.listen(
         parseHost(std::getenv("TVTIME_HOST")),
         parsePort(std::getenv("TVTIME_PORT")));

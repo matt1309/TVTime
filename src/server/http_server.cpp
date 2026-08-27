@@ -12,12 +12,15 @@
 #include <atomic>
 #include <cctype>
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -86,6 +89,157 @@ std::string videosJson(const MediaLibrary& library) {
          << "\"uri\":\"" << jsonEscape(video.uri) << "\"}";
   }
 
+  body << "]";
+  return body.str();
+}
+
+// Parses a single flat JSON object (no nested objects/arrays) into a map of
+// raw string/number values. This is intentionally minimal -- just enough to
+// read the small request bodies TVTime's own frontend sends -- rather than a
+// general purpose JSON library.
+std::optional<std::map<std::string, std::string>> parseFlatJsonObject(
+    const std::string& body) {
+  std::size_t index = 0;
+  const auto skipSpace = [&]() {
+    while (index < body.size() && std::isspace(static_cast<unsigned char>(body[index]))) {
+      ++index;
+    }
+  };
+
+  skipSpace();
+  if (index >= body.size() || body[index] != '{') {
+    return std::nullopt;
+  }
+  ++index;
+
+  std::map<std::string, std::string> values;
+  skipSpace();
+  if (index < body.size() && body[index] == '}') {
+    return values;
+  }
+
+  const auto parseString = [&]() -> std::optional<std::string> {
+    if (index >= body.size() || body[index] != '"') {
+      return std::nullopt;
+    }
+    ++index;
+    std::string value;
+    while (index < body.size() && body[index] != '"') {
+      if (body[index] == '\\' && index + 1 < body.size()) {
+        ++index;
+        switch (body[index]) {
+          case 'n':
+            value += '\n';
+            break;
+          case 't':
+            value += '\t';
+            break;
+          case 'r':
+            value += '\r';
+            break;
+          case '"':
+            value += '"';
+            break;
+          case '\\':
+            value += '\\';
+            break;
+          default:
+            value += body[index];
+            break;
+        }
+      } else {
+        value += body[index];
+      }
+      ++index;
+    }
+
+    if (index >= body.size()) {
+      return std::nullopt;
+    }
+    ++index;
+    return value;
+  };
+
+  while (true) {
+    skipSpace();
+    auto key = parseString();
+    if (!key.has_value()) {
+      return std::nullopt;
+    }
+
+    skipSpace();
+    if (index >= body.size() || body[index] != ':') {
+      return std::nullopt;
+    }
+    ++index;
+    skipSpace();
+
+    std::string value;
+    if (index < body.size() && body[index] == '"') {
+      auto stringValue = parseString();
+      if (!stringValue.has_value()) {
+        return std::nullopt;
+      }
+      value = std::move(*stringValue);
+    } else {
+      const auto start = index;
+      while (index < body.size() && body[index] != ',' && body[index] != '}' &&
+             !std::isspace(static_cast<unsigned char>(body[index]))) {
+        ++index;
+      }
+      if (index == start) {
+        return std::nullopt;
+      }
+      value = body.substr(start, index - start);
+    }
+
+    values[*key] = value;
+    skipSpace();
+    if (index < body.size() && body[index] == ',') {
+      ++index;
+      continue;
+    }
+    if (index < body.size() && body[index] == '}') {
+      break;
+    }
+    return std::nullopt;
+  }
+
+  return values;
+}
+
+std::map<std::string, std::string> parseQuery(const std::string& query) {
+  std::map<std::string, std::string> params;
+  std::istringstream stream(query);
+  std::string pair;
+  while (std::getline(stream, pair, '&')) {
+    const auto equals = pair.find('=');
+    if (equals == std::string::npos) {
+      continue;
+    }
+    params[pair.substr(0, equals)] = pair.substr(equals + 1);
+  }
+  return params;
+}
+
+std::string scheduleSlotJson(const ProgramSlot& slot) {
+  std::ostringstream body;
+  body << "{\"channel\":\"" << jsonEscape(slot.channel) << "\","
+       << "\"videoId\":\"" << jsonEscape(slot.videoId) << "\","
+       << "\"startMinute\":" << slot.startMinute << ","
+       << "\"endMinute\":" << slot.endMinute << "}";
+  return body.str();
+}
+
+std::string scheduleSlotsJson(const std::vector<ProgramSlot>& slots) {
+  std::ostringstream body;
+  body << "[";
+  for (std::size_t index = 0; index < slots.size(); ++index) {
+    if (index != 0) {
+      body << ",";
+    }
+    body << scheduleSlotJson(slots[index]);
+  }
   body << "]";
   return body.str();
 }
@@ -300,18 +454,129 @@ std::optional<std::string> readFile(const std::filesystem::path& path) {
 std::string route(
     const std::filesystem::path& documentRoot,
     const MediaLibrary& library,
+    Schedule& schedule,
+    const std::filesystem::path& scheduleFile,
     const std::string& method,
     const std::string& target,
-    const std::string& hostHeader) {
+    const std::string& hostHeader,
+    const std::string& requestBody) {
   const std::string baseUrl = "http://" + (hostHeader.empty() ? "127.0.0.1:8080" : hostHeader);
 
+  const auto path = decodePath(target);
+  const auto queryStart = target.find('?');
+  const auto query = parseQuery(
+      queryStart == std::string::npos ? "" : target.substr(queryStart + 1));
+
+  if (path == "/api/schedule" && method == "POST") {
+    const auto fields = parseFlatJsonObject(requestBody);
+    if (!fields.has_value()) {
+      return response(400, "Bad Request", "application/json; charset=utf-8",
+                       "{\"error\":\"Request body must be a JSON object\"}");
+    }
+
+    const auto channelIt = fields->find("channel");
+    const auto videoIdIt = fields->find("videoId");
+    const auto startIt = fields->find("startMinute");
+    const auto endIt = fields->find("endMinute");
+    if (channelIt == fields->end() || channelIt->second.empty() ||
+        videoIdIt == fields->end() || videoIdIt->second.empty() ||
+        startIt == fields->end() || endIt == fields->end()) {
+      return response(
+          400,
+          "Bad Request",
+          "application/json; charset=utf-8",
+          "{\"error\":\"channel, videoId, startMinute and endMinute are required\"}");
+    }
+
+    ProgramSlot slot;
+    slot.channel = channelIt->second;
+    slot.videoId = videoIdIt->second;
+    try {
+      slot.startMinute = std::stoi(startIt->second);
+      slot.endMinute = std::stoi(endIt->second);
+    } catch (const std::exception&) {
+      return response(400, "Bad Request", "application/json; charset=utf-8",
+                       "{\"error\":\"startMinute and endMinute must be integers\"}");
+    }
+
+    const auto result = schedule.addSlot(slot);
+    if (result == Schedule::AddResult::kInvalidRange) {
+      return response(
+          422,
+          "Unprocessable Entity",
+          "application/json; charset=utf-8",
+          "{\"error\":\"Slot must fall within a single day and endMinute must be after startMinute\"}");
+    }
+    if (result == Schedule::AddResult::kOverlap) {
+      return response(
+          409,
+          "Conflict",
+          "application/json; charset=utf-8",
+          "{\"error\":\"Slot overlaps an existing programme on this channel\"}");
+    }
+
+    if (!scheduleFile.empty() && !schedule.saveToFile(scheduleFile)) {
+      std::cerr << "warning: failed to persist schedule to " << scheduleFile << "\n";
+    }
+
+    return response(201, "Created", "application/json; charset=utf-8", scheduleSlotJson(slot));
+  }
+
   if (method != "GET") {
+    const std::string allow = path == "/api/schedule" ? "GET, POST" : "GET";
     return response(
         405,
         "Method Not Allowed",
         "text/plain; charset=utf-8",
         "Method not allowed",
-        "Allow: GET\r\n");
+        "Allow: " + allow + "\r\n");
+  }
+
+  if (path == "/api/schedule") {
+    const auto channelParam = query.find("channel");
+    const auto slots = channelParam == query.end()
+                            ? schedule.slots()
+                            : schedule.slotsForChannel(urlDecode(channelParam->second));
+    return response(200, "OK", "application/json; charset=utf-8", scheduleSlotsJson(slots));
+  }
+
+  if (path == "/api/schedule/now") {
+    const auto channelParam = query.find("channel");
+    if (channelParam == query.end() || channelParam->second.empty()) {
+      return response(400, "Bad Request", "application/json; charset=utf-8",
+                       "{\"error\":\"channel query parameter is required\"}");
+    }
+
+    int minuteOfDay = 0;
+    const auto minuteParam = query.find("minute");
+    if (minuteParam != query.end()) {
+      try {
+        minuteOfDay = std::stoi(minuteParam->second);
+      } catch (const std::exception&) {
+        return response(400, "Bad Request", "application/json; charset=utf-8",
+                         "{\"error\":\"minute must be an integer\"}");
+      }
+      if (minuteOfDay < 0 || minuteOfDay >= 24 * 60) {
+        return response(400, "Bad Request", "application/json; charset=utf-8",
+                         "{\"error\":\"minute must be between 0 and 1439\"}");
+      }
+    } else {
+      const auto now = std::time(nullptr);
+      std::tm localTime{};
+#ifdef _WIN32
+      localtime_s(&localTime, &now);
+#else
+      localtime_r(&now, &localTime);
+#endif
+      minuteOfDay = localTime.tm_hour * 60 + localTime.tm_min;
+    }
+
+    const auto slot = schedule.nowPlaying(urlDecode(channelParam->second), minuteOfDay);
+    if (!slot.has_value()) {
+      return response(200, "OK", "application/json; charset=utf-8", "null");
+    }
+
+    return response(200, "OK", "application/json; charset=utf-8", scheduleSlotJson(*slot));
   }
 
   if (target == "/api/health") {
@@ -526,7 +791,9 @@ std::string extractHeader(const std::string& headerBlock, const std::string& nam
 void handleClient(
     int clientDescriptor,
     const std::filesystem::path& documentRoot,
-    std::shared_ptr<const MediaLibrary> library) {
+    std::shared_ptr<const MediaLibrary> library,
+    std::shared_ptr<Schedule> schedule,
+    const std::filesystem::path& scheduleFile) {
   const Socket client(clientDescriptor);
 
   std::string requestText;
@@ -561,9 +828,34 @@ void handleClient(
   std::string target;
   request >> method >> target;
 
-  const std::string hostHeader = extractHeader(requestText.substr(0, headerEnd), "host");
+  const std::string headerBlock = requestText.substr(0, headerEnd);
+  const std::string hostHeader = extractHeader(headerBlock, "host");
+  const std::string contentLengthHeader = extractHeader(headerBlock, "content-length");
 
-  const auto output = route(documentRoot, *library, method, target, hostHeader);
+  std::string body = requestText.substr(headerEnd + 4);
+  if (!contentLengthHeader.empty()) {
+    std::size_t contentLength = 0;
+    try {
+      contentLength = static_cast<std::size_t>(std::stoul(contentLengthHeader));
+    } catch (const std::exception&) {
+      contentLength = 0;
+    }
+
+    contentLength = std::min<std::size_t>(contentLength, 1 << 20);
+    while (body.size() < contentLength) {
+      const auto bytesToRead =
+          std::min(buffer.size(), contentLength - body.size());
+      const auto bytesRead = recv(client.descriptor(), buffer.data(), bytesToRead, 0);
+      if (bytesRead <= 0) {
+        break;
+      }
+      body.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+    }
+    body.resize(std::min(body.size(), contentLength));
+  }
+
+  const auto output =
+      route(documentRoot, *library, *schedule, scheduleFile, method, target, hostHeader, body);
   sendResponse(client.descriptor(), output);
 }
 
@@ -571,9 +863,19 @@ void handleClient(
 
 }  // namespace
 
-HttpServer::HttpServer(std::filesystem::path documentRoot, std::shared_ptr<MediaLibrary> library)
+HttpServer::HttpServer(
+    std::filesystem::path documentRoot,
+    std::shared_ptr<MediaLibrary> library,
+    std::shared_ptr<Schedule> schedule,
+    std::filesystem::path scheduleFile)
     : documentRoot_(std::filesystem::absolute(std::move(documentRoot))),
-      library_(std::move(library)) {}
+      library_(std::move(library)),
+      schedule_(std::move(schedule)),
+      scheduleFile_(std::move(scheduleFile)) {
+  if (!scheduleFile_.empty() && !schedule_->loadFromFile(scheduleFile_)) {
+    std::cerr << "warning: failed to load persisted schedule from " << scheduleFile_ << "\n";
+  }
+}
 
 void HttpServer::listen(const std::string& host, int port) {
 #ifdef _WIN32
@@ -634,8 +936,13 @@ void HttpServer::listen(const std::string& host, int port) {
     }
 
     std::thread(
-        [clientDescriptor, documentRoot = documentRoot_, library = library_, activeClients]() {
-          handleClient(clientDescriptor, documentRoot, library);
+        [clientDescriptor,
+         documentRoot = documentRoot_,
+         library = library_,
+         schedule = schedule_,
+         scheduleFile = scheduleFile_,
+         activeClients]() {
+          handleClient(clientDescriptor, documentRoot, library, schedule, scheduleFile);
           activeClients->fetch_sub(1);
         })
         .detach();
