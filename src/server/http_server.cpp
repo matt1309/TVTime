@@ -219,6 +219,23 @@ std::string channelTvgId(const Video& video) {
   return "tvtime-" + urlEncode(video.id);
 }
 
+// #EXTINF attribute values are double-quoted and the M3U format has no escape
+// sequence for embedded quotes, so strip characters that would otherwise
+// break the line (double quotes and newlines) out of untrusted metadata.
+std::string m3uAttributeEscape(const std::string& value) {
+  std::string escaped;
+  escaped.reserve(value.size());
+
+  for (const char ch : value) {
+    if (ch == '"' || ch == '\n' || ch == '\r') {
+      continue;
+    }
+    escaped += ch;
+  }
+
+  return escaped;
+}
+
 // Generates an extended M3U playlist that turns every video with a URI into a
 // live IPTV channel served by TVTime itself, making TVTime the IPTV provider
 // rather than merely an importer of someone else's playlist.
@@ -231,9 +248,12 @@ std::string iptvPlaylist(const MediaLibrary& library, const std::string& baseUrl
       continue;
     }
 
+    const std::string safeTitle = m3uAttributeEscape(video.title);
+    const std::string safeGenre = m3uAttributeEscape(video.genre);
+
     body << "#EXTINF:-1 tvg-id=\"" << channelTvgId(video) << "\" tvg-name=\""
-         << video.title << "\" group-title=\"" << video.genre << "\","
-         << video.title << "\n"
+         << safeTitle << "\" group-title=\"" << safeGenre << "\","
+         << safeTitle << "\n"
          << baseUrl << "/api/stream/" << urlEncode(video.id) << "\n";
   }
 
@@ -267,6 +287,10 @@ std::string xmltvEpg(const MediaLibrary& library) {
     }
 
     const std::string channelId = channelTvgId(video);
+    // The Unix epoch to a far-future date is used as a sentinel "always on"
+    // window: TVTime channels are continuous live streams rather than
+    // discrete scheduled programmes, so a single programme spans the entire
+    // representable XMLTV time range for each channel.
     body << "  <programme start=\"19700101000000 +0000\" stop=\"20991231235959 +0000\" channel=\""
          << channelId << "\">\n"
          << "    <title>" << xmlEscape(video.title) << "</title>\n"
