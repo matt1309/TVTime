@@ -29,6 +29,14 @@ int parsePort(const char* value) {
   return static_cast<int>(port);
 }
 
+std::string parseHost(const char* value) {
+  if (value == nullptr || value[0] == '\0') {
+    return "127.0.0.1";
+  }
+
+  return value;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -43,7 +51,9 @@ int main(int argc, char* argv[]) {
     library->importFromSources();
 
     tvtime::server::HttpServer server(documentRoot, library);
-    server.listen("127.0.0.1", parsePort(std::getenv("TVTIME_PORT")));
+    server.listen(
+        parseHost(std::getenv("TVTIME_HOST")),
+        parsePort(std::getenv("TVTIME_PORT")));
   } catch (const std::exception& error) {
     std::cerr << "TVTime failed to start: " << error.what() << "\n";
     return 1;

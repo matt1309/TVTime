@@ -74,7 +74,7 @@ It matches the project goals:
 - **simple frontend**
 - **incremental path from prototype to real scheduler**
 
-## Running the prototype
+## Running TVTime
 
 From the repository root:
 
@@ -82,13 +82,16 @@ From the repository root:
 python3 -m http.server 8000
 ```
 
-Then open <http://localhost:8000>.
+Then open <http://localhost:8000>. This browser-only mode stores data in
+`localStorage` and skips backend media discovery.
 
 ## Running the C++ backend
 
-The backend scaffold builds with CMake and serves the current static frontend from
-the repository root. It also exposes early JSON endpoints for health, source
-plugins and discovered videos.
+The backend builds with CMake, serves the static frontend from the repository
+root and exposes JSON endpoints for health, source plugins and discovered local
+videos. The frontend can sync discovered videos from `GET /api/videos`; files
+without metadata receive a default 30 minute duration that you can adjust by
+adding media manually.
 
 ```bash
 cmake -S . -B build
@@ -96,13 +99,35 @@ cmake --build build
 ./build/tvtime_server . ./media
 ```
 
-Then open <http://127.0.0.1:8080>. Set `TVTIME_PORT` to choose another port.
+Then open <http://127.0.0.1:8080>. Set `TVTIME_PORT` to choose another port or
+`TVTIME_HOST=0.0.0.0` when exposing the server to other devices.
 
 Current API endpoints:
 
 - `GET /api/health`
 - `GET /api/sources`
 - `GET /api/videos`
+
+## Running with Docker
+
+The included container is intended for NAS installs and other always-on home
+servers. It builds the C++ backend, serves the frontend and indexes media mounted
+at `/media`.
+
+```bash
+docker compose up -d --build
+```
+
+By default, `docker-compose.yml` publishes TVTime at <http://localhost:8080> and
+mounts `./media` read-only. On a NAS, replace `./media` with the absolute path to
+your video share, for example:
+
+```yaml
+volumes:
+  - /volume1/video:/media:ro
+```
+
+Supported discovered file types are `.mp4`, `.mkv`, `.avi`, `.mov` and `.webm`.
 
 ## Next backend milestones
 

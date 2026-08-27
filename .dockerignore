@@ -1,0 +1,9 @@
+.git
+.gitignore
+build
+CMakeFiles
+CMakeCache.txt
+cmake_install.cmake
+*.o
+*.a
+*.log
