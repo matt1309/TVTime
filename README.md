@@ -122,6 +122,19 @@ Current API endpoints:
 - `GET /api/videos`
 - `GET /api/stream/{video_id}` - Stream video content for playback, or redirect
   to the origin URL for remote sources such as IPTV streams
+- `GET /api/schedule` - list all scheduled program slots, or pass
+  `?channel=<name>` to filter to a single channel
+- `GET /api/schedule/now?channel=<name>` - the slot playing now on a channel
+  (optionally pass `&minute=<0-1439>` to check a specific minute of the day
+  instead of the server's current local time)
+- `POST /api/schedule` - add a slot with a JSON body of
+  `{"channel": "...", "videoId": "...", "startMinute": 0, "endMinute": 30}`
+  (`startMinute`/`endMinute` count minutes since midnight). Returns `409` on
+  an overlapping slot or `422` for an invalid time range.
+
+The schedule is persisted to a small tab-separated file (`schedule.tsv` in the
+media directory by default, or the path in `TVTIME_SCHEDULE_FILE`) so slots
+added through the API survive a server restart.
 
 ## IPTV guide and channels
 
@@ -176,7 +189,10 @@ Supported discovered file types are `.mp4`, `.mkv`, `.avi`, `.mov` and `.webm`.
 ## Next backend milestones
 
 1. move browser state into the C++ service
-2. add persistent media and schedule storage
-3. separate scheduling rules from UI logic
-4. add playback endpoints and source adapters
+2. add persistent media and schedule storage ✓ (schedule persistence and
+   `/api/schedule` endpoints implemented; media library indexing was already
+   in place)
+3. separate scheduling rules from UI logic ✓ (overlap/range validation now
+   lives in the backend `Schedule` class behind `/api/schedule`)
+4. add playback endpoints and source adapters ✓ (`/api/stream/{video_id}`)
 5. add authentication only when multi-user support is needed
