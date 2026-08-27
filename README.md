@@ -28,6 +28,7 @@ The prototype lets you:
 - **watch channels with the built-in HTML5 video player**
 - **discover DLNA/UPnP media servers on your network**
 - **import IPTV M3U playlists as live channels with an always-on guide slot**
+- **generate your own IPTV M3U playlist + XMLTV EPG so TVTime acts as an IPTV provider**
 - **expose the backend as a virtual HDHomeRun tuner for DVR apps**
 
 All data is stored locally in `localStorage`, which keeps the initial project easy to understand and easy to evolve.
@@ -122,6 +123,9 @@ Current API endpoints:
 - `GET /api/videos`
 - `GET /api/stream/{video_id}` - Stream video content for playback, or redirect
   to the origin URL for remote sources such as IPTV streams
+- `GET /iptv.m3u` (alias `/playlist.m3u`) - M3U playlist of TVTime's own
+  channels, for use as an IPTV provider feed
+- `GET /xmltv.xml` - XMLTV EPG matching the generated M3U playlist
 
 ## IPTV guide and channels
 
@@ -136,6 +140,23 @@ channels:
   `tvtime_server` (or point `TVTIME_IPTV_M3U` at any file path) and restart the
   server. Discovered channels are merged into `GET /api/videos` automatically
   and appear after using "Sync backend media" in the frontend.
+
+## Generating your own IPTV feed
+
+TVTime can also act as an IPTV **provider**, not just an importer: every video
+in the library (local files, DLNA-discovered media, or imported IPTV entries)
+is published as a channel in a standard M3U playlist with a matching XMLTV
+guide, so any IPTV client (VLC, Kodi, TiviMate, Perfect Player, ...) can
+subscribe directly to your TVTime server:
+
+- `GET /iptv.m3u` (alias `GET /playlist.m3u`) - an extended M3U playlist of
+  every channel, pointing at `/api/stream/{video_id}` for playback
+- `GET /xmltv.xml` - an XMLTV EPG with a channel entry (and an all-day
+  placeholder programme) for every channel in the playlist
+
+Add `http://<server>:<port>/iptv.m3u` as the playlist URL and
+`http://<server>:<port>/xmltv.xml` as the EPG URL in your IPTV player of
+choice.
 
 ## Virtual HDHomeRun / TV headend
 

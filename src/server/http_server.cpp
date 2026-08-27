@@ -184,6 +184,100 @@ std::string lineupJson(const MediaLibrary& library, const std::string& baseUrl) 
   return body.str();
 }
 
+std::string xmlEscape(const std::string& value) {
+  std::ostringstream escaped;
+
+  for (const char ch : value) {
+    switch (ch) {
+      case '&':
+        escaped << "&amp;";
+        break;
+      case '<':
+        escaped << "&lt;";
+        break;
+      case '>':
+        escaped << "&gt;";
+        break;
+      case '"':
+        escaped << "&quot;";
+        break;
+      case '\'':
+        escaped << "&apos;";
+        break;
+      default:
+        escaped << ch;
+        break;
+    }
+  }
+
+  return escaped.str();
+}
+
+// A stable channel identifier shared between the M3U playlist and the XMLTV
+// EPG so IPTV clients can associate guide data with each generated channel.
+std::string channelTvgId(const Video& video) {
+  return "tvtime-" + urlEncode(video.id);
+}
+
+// Generates an extended M3U playlist that turns every video with a URI into a
+// live IPTV channel served by TVTime itself, making TVTime the IPTV provider
+// rather than merely an importer of someone else's playlist.
+std::string iptvPlaylist(const MediaLibrary& library, const std::string& baseUrl) {
+  std::ostringstream body;
+  body << "#EXTM3U x-tvg-url=\"" << baseUrl << "/xmltv.xml\"\n";
+
+  for (const auto& video : library.videos()) {
+    if (video.uri.empty()) {
+      continue;
+    }
+
+    body << "#EXTINF:-1 tvg-id=\"" << channelTvgId(video) << "\" tvg-name=\""
+         << video.title << "\" group-title=\"" << video.genre << "\","
+         << video.title << "\n"
+         << baseUrl << "/api/stream/" << urlEncode(video.id) << "\n";
+  }
+
+  return body.str();
+}
+
+// Generates a minimal XMLTV EPG describing the channels published in the M3U
+// playlist above. Since TVTime channels are continuously live streams rather
+// than scheduled programmes, a single all-day placeholder programme is
+// published for each channel so IPTV guide UIs have something to display.
+std::string xmltvEpg(const MediaLibrary& library) {
+  std::ostringstream body;
+  body << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+       << "<tv generator-info-name=\"TVTime\">\n";
+
+  const auto videos = library.videos();
+  for (const auto& video : videos) {
+    if (video.uri.empty()) {
+      continue;
+    }
+
+    const std::string channelId = channelTvgId(video);
+    body << "  <channel id=\"" << channelId << "\">\n"
+         << "    <display-name>" << xmlEscape(video.title) << "</display-name>\n"
+         << "  </channel>\n";
+  }
+
+  for (const auto& video : videos) {
+    if (video.uri.empty()) {
+      continue;
+    }
+
+    const std::string channelId = channelTvgId(video);
+    body << "  <programme start=\"19700101000000 +0000\" stop=\"20991231235959 +0000\" channel=\""
+         << channelId << "\">\n"
+         << "    <title>" << xmlEscape(video.title) << "</title>\n"
+         << "    <category>" << xmlEscape(video.genre) << "</category>\n"
+         << "  </programme>\n";
+  }
+
+  body << "</tv>\n";
+  return body.str();
+}
+
 std::string sourcesJson(const MediaLibrary& library) {
   std::ostringstream body;
   body << "[";
@@ -339,6 +433,21 @@ std::string route(
 
   if (target == "/lineup_status.json") {
     return response(200, "OK", "application/json; charset=utf-8", lineupStatusJson());
+  }
+
+  // TVTime as an IPTV provider: a standard M3U playlist and XMLTV EPG so any
+  // IPTV client (VLC, Kodi, TiviMate, ...) can subscribe to TVTime's own
+  // channels directly, rather than TVTime only importing someone else's feed.
+  if (target == "/iptv.m3u" || target == "/playlist.m3u") {
+    return response(
+        200,
+        "OK",
+        "application/vnd.apple.mpegurl; charset=utf-8",
+        iptvPlaylist(library, baseUrl));
+  }
+
+  if (target == "/xmltv.xml") {
+    return response(200, "OK", "application/xml; charset=utf-8", xmltvEpg(library));
   }
 
   if (target.rfind("/api/stream/", 0) == 0) {
