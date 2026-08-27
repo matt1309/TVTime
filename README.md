@@ -136,6 +136,15 @@ The schedule is persisted to a small tab-separated file (`schedule.tsv` in the
 media directory by default, or the path in `TVTIME_SCHEDULE_FILE`) so slots
 added through the API survive a server restart.
 
+The frontend now keeps this backend schedule in sync automatically: manual
+slots, generated genre blocks and IPTV all-day slots are pushed to
+`/api/schedule` as soon as they are created, and the guide pulls
+`GET /api/schedule` on load (and whenever you click "Sync backend media") to
+merge in any slots created elsewhere (another browser, a script, or a
+previous session with a running backend). When the backend is unreachable,
+TVTime falls back to `localStorage` only, so the browser-only workflow keeps
+working unchanged.
+
 ## IPTV guide and channels
 
 TVTime can import standard [M3U/M3U8](https://en.wikipedia.org/wiki/M3U)
@@ -188,7 +197,9 @@ Supported discovered file types are `.mp4`, `.mkv`, `.avi`, `.mov` and `.webm`.
 
 ## Next backend milestones
 
-1. move browser state into the C++ service
+1. move browser state into the C++ service ✓ (the frontend now syncs
+   schedule slots to/from `/api/schedule` in addition to media; channels and
+   raw media metadata still live in `localStorage`)
 2. add persistent media and schedule storage ✓ (schedule persistence and
    `/api/schedule` endpoints implemented; media library indexing was already
    in place)

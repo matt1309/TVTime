@@ -152,6 +152,7 @@ manualScheduleForm.addEventListener("submit", (event) => {
   manualScheduleForm.reset();
   render(channel);
   showMessage(`Scheduled "${media.title}" on ${channel}.`, "success");
+  postScheduleSlot(slot);
 });
 
 autoScheduleForm.addEventListener("submit", (event) => {
@@ -222,6 +223,7 @@ autoScheduleForm.addEventListener("submit", (event) => {
   autoScheduleForm.reset();
   render(channel);
   showMessage(`Generated ${generatedSlots.length} programme slots on ${channel}.`, "success");
+  generatedSlots.forEach((slot) => postScheduleSlot(slot));
 });
 
 guideChannel.addEventListener("change", () => {
@@ -230,7 +232,7 @@ guideChannel.addEventListener("change", () => {
 });
 
 syncLibrary.addEventListener("click", () => {
-  syncBackendMedia({ showSuccess: true });
+  syncBackendMedia({ showSuccess: true }).then(() => syncBackendSchedule());
 });
 
 iptvForm.addEventListener("submit", (event) => {
@@ -267,12 +269,14 @@ iptvForm.addEventListener("submit", (event) => {
     // Live IPTV channels run all day; replace any previous all-day slot for
     // this channel so re-importing a playlist keeps the guide in sync.
     state.schedule = state.schedule.filter((slot) => slot.channel !== entry.title);
-    state.schedule.push({
+    const slot = {
       channel: entry.title,
       mediaId: media.id,
       start: "00:00",
       end: "23:59"
-    });
+    };
+    state.schedule.push(slot);
+    postScheduleSlot(slot);
   });
 
   sortSchedule();
@@ -368,6 +372,108 @@ async function syncBackendMedia({ showSuccess = false } = {}) {
     libraryStatus.textContent =
       "Backend media sync is unavailable. You can keep using the browser-only library.";
     window.console.info("TVTime backend media sync skipped:", error);
+  }
+}
+
+// Sends a locally-created schedule slot to the C++ backend so it persists
+// across browser sessions and devices instead of only living in
+// localStorage. This is best-effort: when the backend is unreachable, or it
+// rejects the slot (e.g. a duplicate produced by re-importing an IPTV
+// playlist), the slot still works locally and the failure is only logged.
+async function postScheduleSlot(slot) {
+  try {
+    const response = await fetch("/api/schedule", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({
+        channel: slot.channel,
+        videoId: slot.mediaId,
+        startMinute: toMinutes(slot.start),
+        endMinute: toMinutes(slot.end)
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`backend returned ${response.status}`);
+    }
+  } catch (error) {
+    window.console.info("TVTime backend schedule sync skipped:", error);
+  }
+}
+
+// Pulls any previously persisted schedule slots from the backend and merges
+// them into the local schedule so a browser refresh (or a different device)
+// sees the same guide the backend has been serving through `/api/schedule`.
+async function syncBackendSchedule() {
+  try {
+    const response = await fetch("/api/schedule", {
+      headers: { Accept: "application/json" }
+    });
+
+    if (!response.ok) {
+      throw new Error(`backend returned ${response.status}`);
+    }
+
+    const slots = await response.json();
+    if (!Array.isArray(slots)) {
+      throw new Error("backend response was not a schedule list");
+    }
+
+    const existingKeys = new Set(
+      state.schedule.map((slot) => `${slot.channel}|${slot.start}|${slot.mediaId}`)
+    );
+
+    let addedChannels = false;
+    let addedSlots = 0;
+
+    slots.forEach((slot) => {
+      if (
+        !slot ||
+        typeof slot.channel !== "string" ||
+        typeof slot.videoId !== "string" ||
+        !Number.isInteger(slot.startMinute) ||
+        !Number.isInteger(slot.endMinute)
+      ) {
+        return;
+      }
+
+      if (!state.media.some((item) => item.id === slot.videoId)) {
+        // Skip slots whose media isn't known locally yet; they will be
+        // picked up on a later sync once syncBackendMedia has imported it.
+        return;
+      }
+
+      if (!state.channels.includes(slot.channel)) {
+        state.channels.push(slot.channel);
+        addedChannels = true;
+      }
+
+      const start = fromMinutes(slot.startMinute);
+      const key = `${slot.channel}|${start}|${slot.videoId}`;
+      if (existingKeys.has(key)) {
+        return;
+      }
+
+      existingKeys.add(key);
+      state.schedule.push({
+        channel: slot.channel,
+        mediaId: slot.videoId,
+        start,
+        end: fromMinutes(slot.endMinute)
+      });
+      addedSlots += 1;
+    });
+
+    if (addedSlots > 0 || addedChannels) {
+      sortSchedule();
+      persistState();
+      render();
+    }
+  } catch (error) {
+    window.console.info("TVTime backend schedule sync skipped:", error);
   }
 }
 
@@ -667,6 +773,6 @@ function escapeHtml(value) {
 }
 
 render();
-syncBackendMedia();
+syncBackendMedia().then(() => syncBackendSchedule());
 refreshTunerInfo();
 window.setInterval(renderNowPlaying, 30000);
